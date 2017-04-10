@@ -9,7 +9,7 @@ from torch.autograd import Variable
 import data
 import network
 
-def test(model_filename, input_fname, output_dir):
+def test(model_filename, input, output_dir):
     minibatch_size = 4
     cuda = False
 
@@ -20,19 +20,24 @@ def test(model_filename, input_fname, output_dir):
     if cuda:
         model = model.cuda()
     print('...done.')
-    if os.path.isdir(input_fname):
-        input_filenames = [os.path.join(input_fname, f) for f in os.listdir(input_fname)]
+    if type(input) == list:
+        input_filenames = input
+    elif os.path.isdir(input):
+        input_filenames = [os.path.join(input, f) for f in os.listdir(input)]
     else:
-        input_filenames = [input_fname,]
+        input_filenames = [input,]
     output_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '.tiff') for f in input_filenames]
 
     num_inputs = len(input_filenames)
     for i_begin in range(0, num_inputs, minibatch_size):
         i_end = min(i_begin+minibatch_size, num_inputs)
         minibatch_inputs = list()
+        input_shapes = list()
         for i in range(i_begin, i_end):
             # load image
             input = skimage.io.imread(input_filenames[i])
+            # save original image shapes for later
+            input_shapes.append(input.shape)
             # normalize / convert to float
             minibatch_inputs.append( data.prepare_input(input) )
 
@@ -53,8 +58,10 @@ def test(model_filename, input_fname, output_dir):
             print('len(outputs) = ' + str(len(minibatch_outputs)))
             raise Exception('size of minibatch inputs and outputs do not match')
         # write out output images
-        for i in range(i_begin, i_end):
-            tifffile.imsave(output_filenames[i], minibatch_outputs[0])
+        for mb_i in range(len(minibatch_inputs)):
+            i = i_begin + mb_i
+            img_out = data.prepare_output(minibatch_outputs[mb_i], input_shapes[mb_i])
+            tifffile.imsave(output_filenames[i], img_out)
     return output_filenames
 
 if __name__ == '__main__':

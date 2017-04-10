@@ -42,6 +42,11 @@ def prepare_input(img):
     img /= 255 - 0.5
     return img
 
+def prepare_output(img, input_shape):
+    # convert to expected size
+    img_out = skimage.transform.resize(img, input_shape[0:2])
+    return img_out
+
 
 class Pix2FaceTrainingData(Dataset):
     def __init__(self, image_dir, target_dir):
