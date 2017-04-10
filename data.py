@@ -29,6 +29,12 @@ def minibatch_to_images(mb):
 
 
 def prepare_input(img):
+    # ensure input is a color image
+    if len(img.shape) < 3 or img.shape[2] < 3:
+        img = skimage.color.gray2rgb(img)
+    # strip alpha layer, if present
+    img = img[:,:,0:3]
+    # convert to floating point
     img = img.astype(np.float)
     # convert to expected size
     img = skimage.transform.resize(img, (256,256))
@@ -39,6 +45,8 @@ def prepare_input(img):
 
 class Pix2FaceTrainingData(Dataset):
     def __init__(self, image_dir, target_dir):
+        print('image_dir = ' + image_dir)
+        print('target_dir = ' + target_dir)
         self.in_filenames = list()
         self.target_filenames = list()
 
@@ -52,16 +60,20 @@ class Pix2FaceTrainingData(Dataset):
 
     def __getitem__(self, idx):
         # load images
-        img = skimage.io.imread(self.in_filenames[idx]).astype(np.float)
-        target = tifffile.imread(self.target_filenames[idx])
+        img = skimage.io.imread(self.in_filenames[idx])
+        target_ext = os.path.splitext(self.target_filenames[idx])[1]
+        if target_ext == '.tiff' or target_ext == '.tif':
+            target = tifffile.imread(self.target_filenames[idx])
+        else:
+            target = skimage.io.imread(self.target_filenames[idx]).astype(np.float)
+            target /= 255 - 0.5
 
         if img.shape[0:2] != target.shape[0:2]:
+            print('img.shape = ' + str(img.shape))
+            print('target.shape = ' + str(target.shape))
             raise Exception('Inconsistent input and target image sizes')
 
-        # convert to expected size
-        img = skimage.transform.resize(img, (256,256))
-        # transform pixels to range (-0.5, 0.5)
-        img /= 255 - 0.5
+        img = prepare_input(img)
 
         # transform target to expected size
         target = skimage.transform.resize(target, (256,256))
