@@ -25,7 +25,7 @@ def train(input_dir, target_dir, output_dir):
     log_filename = os.path.join(output_dir, 'train_loss.npy')
     model_filename = os.path.join(output_dir, 'unet.pth')
 
-    model = network.Unet(num_filters, channels_in, channels_out)
+    model = network.Pix2PNCCNet()
     if cuda:
         model.cuda()
     optimizer = optim.SGD(model.parameters(), learning_rate, momentum)

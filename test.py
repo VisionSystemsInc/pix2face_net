@@ -14,7 +14,7 @@ def test(model_filename, input, output_dir):
     cuda = False
 
     print('loading ' + str(model_filename) + ' ...')
-    model = network.Unet(64, 3, 3)
+    model = network.Pix2PNCCNet()
     model_state_dict = torch.load(model_filename)
     model.load_state_dict(model_state_dict)
     if cuda:

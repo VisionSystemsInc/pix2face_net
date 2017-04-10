@@ -84,6 +84,9 @@ class Unet(nn.Module):
         d8 = self.dconv8(self.relu(d7))
         # state size is (nc) x 256 x 256
         output = self.tanh(d8)
-
         return output
 
+
+class Pix2PNCCNet(Unet):
+    def __init__(self):
+        Unet.__init__(self, num_filters=64, channels_in=3, channels_out=3)
