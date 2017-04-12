@@ -1,5 +1,6 @@
 from __future__ import print_function
 import os
+import signal
 import argparse
 import numpy as np
 import torch
@@ -9,6 +10,12 @@ from torch.autograd import Variable
 
 import network
 import data
+
+def start_pdb(sig, frame):
+    """ drop into the PDB debugger when signal is received.
+    """
+    import pdb
+    pdb.Pdb().set_trace(frame)
 
 
 def train(input_dir, PNCC_dir, offsets_dir, output_dir):
@@ -34,10 +41,10 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir):
     optimizer = optim.Adam(model.parameters())
 
     train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir)
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=minibatch_size, shuffle=True, num_workers=8)
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=minibatch_size, shuffle=True, num_workers=8, pin_memory=True)
 
-    #loss_fn = nn.SmoothL1Loss()
-    loss_fn = nn.L1Loss()
+    loss_fn = nn.SmoothL1Loss()
+    #loss_fn = nn.L1Loss()
     if cuda:
         loss_fn = loss_fn.cuda()
 
@@ -77,4 +84,6 @@ if __name__ == '__main__':
     parser.add_argument('--offsets_dir', default=None, help='directory containing target offset images')
     parser.add_argument('--output_dir', required=True, help='directory to write model and logs to')
     args = parser.parse_args()
+    signal.signal(signal.SIGUSR1, start_pdb)
+    print('pid = ' + str(os.getpid()))
     train(args.input_dir, args.PNCC_dir, args.offsets_dir, args.output_dir)

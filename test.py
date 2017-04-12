@@ -9,17 +9,21 @@ from torch.autograd import Variable
 import data
 import network
 
-def test(model_filename, input, output_dir):
-    minibatch_size = 8
-    cuda = False
-
+def load_model(model_filename):
     print('loading ' + str(model_filename) + ' ...')
     model = network.Pix2FaceNet()
     model_state_dict = torch.load(model_filename)
     model.load_state_dict(model_state_dict)
-    if cuda:
-        model = model.cuda()
     print('...done.')
+    return model
+
+
+def test(model, input, output_dir, cuda_device=None):
+    minibatch_size = 8
+
+    if cuda_device is not None:
+        model = model.cuda(cuda_device)
+
     if type(input) == list:
         input_filenames = input
     elif os.path.isdir(input):
@@ -44,12 +48,12 @@ def test(model_filename, input, output_dir):
 
         # create minibatch
         mb = data.images_to_minibatch(minibatch_inputs)
-        if cuda:
-            mb.cuda()
+        if cuda_device is not None:
+            mb.cuda(cuda_device)
         print('running through the network')
         # run minibatch through the network
         out = model.forward(Variable(mb))
-        if cuda:
+        if cuda_device is not None:
             out = out.data.cpu()
         # convert minibatch output to list of images
         minibatch_outputs = data.minibatch_to_images(out.data)

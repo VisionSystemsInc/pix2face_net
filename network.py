@@ -94,4 +94,4 @@ class Pix2PNCCNet(Unet):
 
 class Pix2FaceNet(Unet):
     def __init__(self):
-        Unet.__init__(self, num_filters=64, channels_in=3, channels_out=6)
+        Unet.__init__(self, num_filters=96, channels_in=3, channels_out=6)

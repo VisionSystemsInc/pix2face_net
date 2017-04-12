@@ -56,6 +56,58 @@ def prepare_output(img, input_shape):
     return imgs_out
 
 
+def unnormalize_PNCC(pncc_in):
+    """ convert PNCC image with values in range (-1,1) to actual 3-d coordinates.
+        Note that the bounding box values below must match those in face3d/semantic_map.cxx
+    """
+    min_val = np.array((-100.0, -130.0, -120.0))
+    max_val = np.array((100.0, 130.0, 120.0))
+    scale = (max_val - min_val)/2.0
+    offset = (max_val + min_val)/2.0
+    pncc = pncc_in * scale + offset
+    return pncc
+
+
+def unnormalize_offsets(offsets_in):
+    """ convert offset image with values in range (-1,1) to actual 3-d coordinates.
+        Note that the bounding box values below must match those in face3d/semantic_map.cxx
+    """
+    min_val = np.array((-20.0, -20.0, -20.0))
+    max_val = np.array((20.0, 20.0, 20.0))
+    scale = (max_val - min_val)/2.0
+    offset = (max_val + min_val)/2.0
+    offsets = offsets_in * scale + offset
+    return offsets
+
+
+def save_ply(img, pncc, offsets, filename):
+    """ Save a point cloud with r,g,b taken from the input image
+        pncc and offsets should be in normalized form (values in range (-1,1))
+    """
+    # extract valid 3d points and their colors
+    img3d = unnormalize_PNCC(pncc) + unnormalize_offsets(offsets)
+    pts_all = np.moveaxis(img3d,2,0).reshape(3,-1)
+    mag_thresh = 10.0  # no valid points near origin
+    mask = np.sum(pts_all*pts_all,axis=0) > mag_thresh
+    pts = pts_all[:,mask]
+    colors = np.moveaxis(img,2,0).reshape(3,-1)[:,mask]
+    # write ply file
+    with open(filename,'w') as fd:
+        fd.write('ply\n')
+        fd.write('format ascii 1.0\n')
+        fd.write('comment Created by pix2face.\n')
+        fd.write('element vertex ' + str(pts.shape[1]) + '\n')
+        fd.write('property float x\n')
+        fd.write('property float y\n')
+        fd.write('property float z\n')
+        fd.write('property uint8 red\n')
+        fd.write('property uint8 green\n')
+        fd.write('property uint8 blue\n')
+        fd.write('end_header\n')
+        for i in range(pts.shape[1]):
+            fd.write('%0.3f %0.3f %0.3f %d %d %d\n' % (pts[0,i],pts[1,i],pts[2,i],colors[0,i],colors[1,i],colors[2,i]))
+
+
 class Pix2FaceTrainingData(Dataset):
     def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None):
         print('input_dir = ' + input_dir)
@@ -85,8 +137,8 @@ class Pix2FaceTrainingData(Dataset):
         img = skimage.io.imread(self.input_filenames[idx])
         target_ext = os.path.splitext(self.target_PNCC_filenames[idx])[1]
 
-        target_PNCC = skimage.io.imread(self.target_PNCC_filenames[idx]).astype(np.float)
-        target_PNCC /= 255 - 0.5
+        target_PNCC = skimage.io.imread(self.target_PNCC_filenames[idx]).astype(np.float)/255.0
+        target_PNCC = target_PNCC  * 2 - 1.0  # range -1,1
 
         if img.shape[0:2] != target_PNCC.shape[0:2]:
             print('img.shape = ' + str(img.shape))
@@ -97,8 +149,8 @@ class Pix2FaceTrainingData(Dataset):
         target_PNCC = skimage.transform.resize(target_PNCC, (256,256))
 
         if self.target_offsets_filenames is not None:
-            target_offsets = skimage.io.imread(self.target_offsets_filenames[idx]).astype(np.float)
-            target_offsets /= 255 - 0.5
+            target_offsets = skimage.io.imread(self.target_offsets_filenames[idx]).astype(np.float)/255.0
+            target_offsets = target_offsets * 2 - 1.0  # range -1,1
             if img.shape[0:2] != target_offsets.shape[0:2]:
                 print('img.shape = ' + str(img.shape))
                 print('target_offsets.shape = ' + str(target_offsets.shape))
