@@ -90,3 +90,8 @@ class Unet(nn.Module):
 class Pix2PNCCNet(Unet):
     def __init__(self):
         Unet.__init__(self, num_filters=64, channels_in=3, channels_out=3)
+
+
+class Pix2FaceNet(Unet):
+    def __init__(self):
+        Unet.__init__(self, num_filters=64, channels_in=3, channels_out=6)

@@ -10,11 +10,11 @@ import data
 import network
 
 def test(model_filename, input, output_dir):
-    minibatch_size = 4
+    minibatch_size = 8
     cuda = False
 
     print('loading ' + str(model_filename) + ' ...')
-    model = network.Pix2PNCCNet()
+    model = network.Pix2FaceNet()
     model_state_dict = torch.load(model_filename)
     model.load_state_dict(model_state_dict)
     if cuda:
@@ -26,7 +26,8 @@ def test(model_filename, input, output_dir):
         input_filenames = [os.path.join(input, f) for f in os.listdir(input)]
     else:
         input_filenames = [input,]
-    output_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '.tiff') for f in input_filenames]
+    output_PNCC_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_PNCC.tiff') for f in input_filenames]
+    output_offsets_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_offsets.tiff') for f in input_filenames]
 
     num_inputs = len(input_filenames)
     for i_begin in range(0, num_inputs, minibatch_size):
@@ -60,9 +61,10 @@ def test(model_filename, input, output_dir):
         # write out output images
         for mb_i in range(len(minibatch_inputs)):
             i = i_begin + mb_i
-            img_out = data.prepare_output(minibatch_outputs[mb_i], input_shapes[mb_i])
-            tifffile.imsave(output_filenames[i], img_out)
-    return output_filenames
+            imgs_out = data.prepare_output(minibatch_outputs[mb_i], input_shapes[mb_i])
+            tifffile.imsave(output_PNCC_filenames[i], imgs_out[0])
+            tifffile.imsave(output_offsets_filenames[i], imgs_out[1])
+    return zip(output_PNCC_filenames, output_offsets_filenames)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Pix2Face network testing')

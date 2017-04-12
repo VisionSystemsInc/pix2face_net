@@ -43,49 +43,79 @@ def prepare_input(img):
     return img
 
 def prepare_output(img, input_shape):
+    # separate if two images concatenated
+    if img.shape[2] == 6:
+        imgs = (img[:,:,0:3], img[:,:,3:6])
+    elif img.shape[2] == 3:
+        imgs = (img,)
+    else:
+        raise Exception('Unexpected image shape: ' + str(img.shape))
+
     # convert to expected size
-    img_out = skimage.transform.resize(img, input_shape[0:2])
-    return img_out
+    imgs_out = [skimage.transform.resize(img, input_shape[0:2]) for img in imgs]
+    return imgs_out
 
 
 class Pix2FaceTrainingData(Dataset):
-    def __init__(self, image_dir, target_dir):
-        print('image_dir = ' + image_dir)
-        print('target_dir = ' + target_dir)
-        self.in_filenames = list()
-        self.target_filenames = list()
+    def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None):
+        print('input_dir = ' + input_dir)
+        print('target_PNCC_dir = ' + target_PNCC_dir)
+        if target_offsets_dir is not None:
+            print('target_offsets_dir = ' + target_offsets_dir)
 
-        self.in_filenames = sorted([os.path.join(image_dir, fname) for fname in os.listdir(image_dir)])
-        self.target_filenames = sorted([os.path.join(target_dir, fname) for fname in os.listdir(target_dir)])
-        if len(self.in_filenames) != len(self.target_filenames):
-            raise Exception('Different numbers of input and target images')
+        self.input_filenames = sorted([os.path.join(input_dir, fname) for fname in os.listdir(input_dir)])
+        self.target_PNCC_filenames = sorted([os.path.join(target_PNCC_dir, fname) for fname in os.listdir(target_PNCC_dir)])
+        if target_offsets_dir is None:
+            self.target_offsets_filenames = None
+        else:
+            self.target_offsets_filenames = sorted([os.path.join(target_offsets_dir, fname) for fname in os.listdir(target_offsets_dir)])
+        if len(self.input_filenames) != len(self.target_PNCC_filenames):
+            raise Exception('Different numbers of input and target PNCC images')
+        if self.target_offsets_filenames is not None and len(self.input_filenames) != len(self.target_offsets_filenames):
+            raise Exception('Different numbers of input and target offsets images')
+        print(str(len(self.input_filenames)) + ' total training images in dataset.')
+
 
     def __len__(self):
-        return len(self.in_filenames)
+        return len(self.input_filenames)
+
 
     def __getitem__(self, idx):
         # load images
-        img = skimage.io.imread(self.in_filenames[idx])
-        target_ext = os.path.splitext(self.target_filenames[idx])[1]
-        if target_ext == '.tiff' or target_ext == '.tif':
-            target = tifffile.imread(self.target_filenames[idx])
-        else:
-            target = skimage.io.imread(self.target_filenames[idx]).astype(np.float)
-            target /= 255 - 0.5
+        img = skimage.io.imread(self.input_filenames[idx])
+        target_ext = os.path.splitext(self.target_PNCC_filenames[idx])[1]
 
-        if img.shape[0:2] != target.shape[0:2]:
+        target_PNCC = skimage.io.imread(self.target_PNCC_filenames[idx]).astype(np.float)
+        target_PNCC /= 255 - 0.5
+
+        if img.shape[0:2] != target_PNCC.shape[0:2]:
             print('img.shape = ' + str(img.shape))
-            print('target.shape = ' + str(target.shape))
-            raise Exception('Inconsistent input and target image sizes')
+            print('target_PNCC.shape = ' + str(target_PNCC.shape))
+            raise Exception('Inconsistent input and target PNCC image sizes')
+
+        # transform PNCC to expected size
+        target_PNCC = skimage.transform.resize(target_PNCC, (256,256))
+
+        if self.target_offsets_filenames is not None:
+            target_offsets = skimage.io.imread(self.target_offsets_filenames[idx]).astype(np.float)
+            target_offsets /= 255 - 0.5
+            if img.shape[0:2] != target_offsets.shape[0:2]:
+                print('img.shape = ' + str(img.shape))
+                print('target_offsets.shape = ' + str(target_offsets.shape))
+                raise Exception('Inconsistent input and target offsets image sizes')
+
+            # transform offsets to expected size
+            target_offsets = skimage.transform.resize(target_offsets, (256,256))
 
         img = prepare_input(img)
-
-        # transform target to expected size
-        target = skimage.transform.resize(target, (256,256))
-        # remove NaNs from target
-        target[np.isnan(target)] = 0.0
-
         img = torch.Tensor(np.moveaxis(img, 2, 0))  # make num_channels first dimension
+
+        # concatenate target images together
+        if self.target_offsets_filenames:
+            target = np.concatenate((target_PNCC, target_offsets),axis=2)
+        else:
+            target = target_PNCC
+
         target = torch.Tensor(np.moveaxis(target, 2, 0))  # make num_channels first dimension
         return img, target
 
