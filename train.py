@@ -18,13 +18,16 @@ def start_pdb(sig, frame):
     pdb.Pdb().set_trace(frame)
 
 
-def train(input_dir, PNCC_dir, offsets_dir, output_dir):
+def train(input_dir, PNCC_dir, offsets_dir, output_dir,
+          start_epoch=0, continue_model_filename=None, continue_log_filename=None):
+    """ Train the Pix2Face Model
+    """
     learning_rate = 0.01
     momentum = 0.5
     print_interval = 100
     save_interval = 1000
     minibatch_size = 16
-    num_epochs = 1
+    num_epochs = 3
     cuda = True
 
     log_filename = os.path.join(output_dir, 'train_loss.npy')
@@ -35,9 +38,13 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir):
     else:
         model = network.Pix2FaceNet()
         model_filename = os.path.join(output_dir, 'pix2face_unet.pth')
+
+    if continue_model_filename is not None:
+        model_state_dict = torch.load(continue_model_filename)
+        model.load_state_dict(model_state_dict)
+
     if cuda:
         model.cuda()
-    #optimizer = optim.SGD(model.parameters(), learning_rate, momentum)
     optimizer = optim.Adam(model.parameters())
 
     train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir)
@@ -52,7 +59,11 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir):
     num_minibatches = num_epochs*num_minibatches_per_epoch
     mb_loss = np.zeros(num_minibatches) + np.nan
 
-    for epoch in range(num_epochs):
+    if continue_log_filename is not None:
+        prev_log = np.load(continue_log_filename)
+        mb_loss[:len(prev_log)] = prev_log
+
+    for epoch in range(start_epoch, num_epochs):
         for batch_idx, (input, target) in enumerate(train_loader):
                 if cuda:
                     input, target = input.cuda(), target.cuda()
@@ -83,7 +94,11 @@ if __name__ == '__main__':
     parser.add_argument('--PNCC_dir', required=True, help='directory containing target PNCC images')
     parser.add_argument('--offsets_dir', default=None, help='directory containing target offset images')
     parser.add_argument('--output_dir', required=True, help='directory to write model and logs to')
+    parser.add_argument('--start_epoch', required=False, type=int, default=0)
+    parser.add_argument('--continue_model', required=False, default=None)
+    parser.add_argument('--continue_log', required=False, default=None)
     args = parser.parse_args()
     signal.signal(signal.SIGUSR1, start_pdb)
     print('pid = ' + str(os.getpid()))
-    train(args.input_dir, args.PNCC_dir, args.offsets_dir, args.output_dir)
+    train(args.input_dir, args.PNCC_dir, args.offsets_dir, args.output_dir,
+          args.start_epoch, args.continue_model, args.continue_log)
