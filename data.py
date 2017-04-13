@@ -36,6 +36,15 @@ def prepare_input(img):
     img = img[:,:,0:3]
     # convert to floating point
     img = img.astype(np.float)
+    # crop to square aspect ratio
+    if img.shape[0] > img.shape[1]:
+        mindim = img.shape[1]
+        s = (img.shape[0] - img.shape[1])/2
+        img = img[s:s+mindim,:,:]
+    elif img.shape[1] > img.shape[0]:
+        mindim = img.shape[0]
+        s = (img.shape[1] - img.shape[0])/2
+        img = img[:,s:s+mindim,:]
     # convert to expected size
     img = skimage.transform.resize(img, (256,256))
     # transform pixels to range (-0.5, 0.5)
@@ -51,8 +60,25 @@ def prepare_output(img, input_shape):
     else:
         raise Exception('Unexpected image shape: ' + str(img.shape))
 
-    # convert to expected size
-    imgs_out = [skimage.transform.resize(img, input_shape[0:2]) for img in imgs]
+    # convert to expected size (square aspect ratio)
+    mindim = np.min(input_shape[0:2])
+    imgs = [skimage.transform.resize(img, (mindim,mindim)) for img in imgs]
+
+    # create outputs of correct size
+    imgs_out = [np.zeros((input_shape[0],input_shape[1],3), img.dtype) for img in imgs]
+    print('mindim = ' + str(mindim))
+    # fill in center region with square crops
+    if input_shape[0] > input_shape[1]:
+        s = (input_shape[0] - input_shape[1])/2
+        print('s = ' + str(s))
+        for i in range(len(imgs_out)):
+            imgs_out[i][s:s+mindim,:,:] = imgs[i]
+    else:
+        s = (input_shape[1] - input_shape[0])/2
+        for i in range(len(imgs_out)):
+            imgs_out[i][:,s:s+mindim,:] = imgs[i]
+
+
     return imgs_out
 
 
