@@ -22,8 +22,6 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir,
           start_epoch=0, continue_model_filename=None, continue_log_filename=None):
     """ Train the Pix2Face Model
     """
-    learning_rate = 0.01
-    momentum = 0.5
     print_interval = 100
     save_interval = 1000
     minibatch_size = 16
@@ -31,6 +29,7 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir,
     cuda = True
 
     log_filename = os.path.join(output_dir, 'train_loss.npy')
+    log_epoch_filename = os.path.join(output_dir, 'train_loss_epoch_%d.npy')
 
     if offsets_dir is None:
         model = network.Pix2PNCCNet()
@@ -38,6 +37,7 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir,
     else:
         model = network.Pix2FaceNet()
         model_filename = os.path.join(output_dir, 'pix2face_unet.pth')
+        model_epoch_filename = os.path.join(output_dir, 'pix2face_unet_epoch_%d.pth')
 
     if continue_model_filename is not None:
         model_state_dict = torch.load(continue_model_filename)
@@ -45,7 +45,7 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir,
 
     if cuda:
         model.cuda()
-    optimizer = optim.Adam(model.parameters())
+    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.5, 0.95))
 
     train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir)
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=minibatch_size, shuffle=True, num_workers=8, pin_memory=True)
@@ -79,14 +79,14 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir,
                         epoch, batch_idx * len(input), len(train_loader.dataset),
                         100. * batch_idx / len(train_loader), loss.data[0]))
                 if batch_idx % save_interval == 0:
-                    print('writing ' + log_filename + ' and ' + model_filename)
                     np.save(log_filename, mb_loss)
                     torch.save(model.state_dict(), model_filename)
+                    print('wrote ' + log_filename + ' and ' + model_filename)
 
         # save (at a minimum) after every completed epoch
-        print('Epoch complete: writing ' + log_filename + ' and ' + model_filename)
-        np.save(log_filename, mb_loss)
-        torch.save(model.state_dict(), model_filename)
+        np.save(log_epoch_filename % epoch, mb_loss)
+        torch.save(model.state_dict(), model_epoch_filename % epoch)
+        print('Epoch complete.')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Pix2Face network training')
