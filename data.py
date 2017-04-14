@@ -5,6 +5,7 @@ import numpy as np
 import skimage.io
 import skimage.external.tifffile as tifffile
 import skimage.transform
+import skimage.morphology
 
 import torch
 from torch.utils.data import Dataset
@@ -66,11 +67,9 @@ def prepare_output(img, input_shape):
 
     # create outputs of correct size
     imgs_out = [np.zeros((input_shape[0],input_shape[1],3), img.dtype) for img in imgs]
-    print('mindim = ' + str(mindim))
     # fill in center region with square crops
     if input_shape[0] > input_shape[1]:
         s = (input_shape[0] - input_shape[1])/2
-        print('s = ' + str(s))
         for i in range(len(imgs_out)):
             imgs_out[i][s:s+mindim,:,:] = imgs[i]
     else:
@@ -106,17 +105,21 @@ def unnormalize_offsets(offsets_in):
     return offsets
 
 
-def save_ply(img, pncc, offsets, filename):
+def save_ply(img, pncc_n, offsets_n, filename):
     """ Save a point cloud with r,g,b taken from the input image
         pncc and offsets should be in normalized form (values in range (-1,1))
     """
+    # unnormalize pncc and offset images
+    pncc = unnormalize_PNCC(pncc_n)
+    offsets = unnormalize_offsets(offsets_n)
+    # create mask of valid points
+    mag_sqrd_thresh = 100.0  # no valid points near origin
+    mask = np.sum(pncc*pncc,axis=2) > mag_sqrd_thresh
+    # erode mask to remove noisy points on the border
+    mask = skimage.morphology.binary_erosion(mask, selem=np.ones((3,3),dtype=np.uint8))
     # extract valid 3d points and their colors
-    img3d = unnormalize_PNCC(pncc) + unnormalize_offsets(offsets)
-    pts_all = np.moveaxis(img3d,2,0).reshape(3,-1)
-    mag_thresh = 10.0  # no valid points near origin
-    mask = np.sum(pts_all*pts_all,axis=0) > mag_thresh
-    pts = pts_all[:,mask]
-    colors = np.moveaxis(img,2,0).reshape(3,-1)[:,mask]
+    pts = (pncc[mask,:] + offsets[mask,:]).transpose()
+    colors = img[mask,:].transpose()
     # write ply file
     with open(filename,'w') as fd:
         fd.write('ply\n')
