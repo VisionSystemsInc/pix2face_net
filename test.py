@@ -50,9 +50,8 @@ def test(model, input, output_dir, cuda_device=None):
         mb = data.images_to_minibatch(minibatch_inputs)
         if cuda_device is not None:
             mb.cuda(cuda_device)
-        print('running through the network')
         # run minibatch through the network
-        out = model.forward(Variable(mb))
+        out = model.forward(Variable(mb),test=True)
         if cuda_device is not None:
             out = out.data.cpu()
         # convert minibatch output to list of images

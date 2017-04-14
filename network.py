@@ -32,11 +32,18 @@ class Unet(nn.Module):
         self.leaky_relu = nn.LeakyReLU(0.2, True)
         self.relu = nn.ReLU(True)
 
-        self.dropout = nn.Dropout(0.5)
+        self.dropout_rate = 0.25
+        self.dropout = nn.Dropout2d(self.dropout_rate)
 
         self.tanh = nn.Tanh()
 
-    def forward(self, input):
+    def forward(self, input, test=False):
+        # don't use random dropout at test time
+        if test:
+            dropout = lambda x : x*(1.0 - self.dropout_rate)
+        else:
+            dropout = self.dropout
+
         # Encoder
         # Convolution layers:
         # input is (nc) x 256 x 256
@@ -60,13 +67,13 @@ class Unet(nn.Module):
         # Decoder
         # Deconvolution layers:
         # state size is (num_filters x 8) x 1 x 1
-        d1_ = self.dropout(self.batch_norm8(self.dconv1(self.relu(e8))))
+        d1_ = self.batch_norm8(self.dconv1(self.relu(e8)))
         # state size is (num_filters x 8) x 2 x 2
         d1 = torch.cat((d1_, e7), 1)
-        d2_ = self.dropout(self.batch_norm8(self.dconv2(self.relu(d1))))
+        d2_ = self.batch_norm8(self.dconv2(self.relu(d1)))
         # state size is (num_filters x 8) x 4 x 4
         d2 = torch.cat((d2_, e6), 1)
-        d3_ = self.dropout(self.batch_norm8(self.dconv3(self.relu(d2))))
+        d3_ = self.batch_norm8(self.dconv3(self.relu(d2)))
         # state size is (num_filters x 8) x 8 x 8
         d3 = torch.cat((d3_, e5), 1)
         d4_ = self.batch_norm8(self.dconv4(self.relu(d3)))
