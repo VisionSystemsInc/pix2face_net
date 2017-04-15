@@ -45,7 +45,7 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir,
 
     if cuda:
         model.cuda()
-    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.5, 0.95))
+    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.99))
 
     train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir)
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=minibatch_size, shuffle=True, num_workers=8, pin_memory=True)

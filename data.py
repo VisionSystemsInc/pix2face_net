@@ -9,6 +9,7 @@ import skimage.morphology
 
 import torch
 from torch.utils.data import Dataset
+import torchvision
 
 
 def images_to_minibatch(images):
@@ -29,7 +30,7 @@ def minibatch_to_images(mb):
     return images
 
 
-def prepare_input(img):
+def prepare_input(img, targets=None, jitter=False):
     # ensure input is a color image
     if len(img.shape) < 3 or img.shape[2] < 3:
         img = skimage.color.gray2rgb(img)
@@ -37,20 +38,72 @@ def prepare_input(img):
     img = img[:,:,0:3]
     # convert to floating point
     img = img.astype(np.float)
-    # crop to square aspect ratio
-    if img.shape[0] > img.shape[1]:
-        mindim = img.shape[1]
-        s = (img.shape[0] - img.shape[1])/2
-        img = img[s:s+mindim,:,:]
-    elif img.shape[1] > img.shape[0]:
-        mindim = img.shape[0]
-        s = (img.shape[1] - img.shape[0])/2
-        img = img[:,s:s+mindim,:]
-    # convert to expected size
-    img = skimage.transform.resize(img, (256,256))
+    if targets is not None:
+        num_targets = len(targets)
+        for t in range(num_targets):
+            targets[t] = targets[t].astype(np.float)
+
+    # randomly resize and crop image
+    mindim = np.min(img.shape[0:2])
+    if jitter:
+        # randomly resize such that min dimension is in range (256,300)
+        new_mindim = np.random.randint(256,300)
+    else:
+        new_mindim = 256
+    scale = np.float(new_mindim)/mindim
+    new_shape = np.ceil(scale*np.array(img.shape[0:2])).astype(np.int)
+
+    img = skimage.transform.resize(img, new_shape)
+    if targets is not None:
+        for t in range(num_targets):
+            targets[t] = skimage.transform.resize(targets[t], new_shape)
+
+    # crop square
+    if jitter:
+        max_x = img.shape[1] - 256
+        max_y = img.shape[0] - 256
+        if max_x > 0:
+            xoff = np.random.randint(0,max_x)
+        else:
+            xoff = 0
+        if max_y > 0:
+            yoff = np.random.randint(0,max_y)
+        else:
+            yoff = 0
+    else:
+        xoff = (img.shape[1] - 256)/2
+        yoff = (img.shape[0] - 256)/2
+    img = img[yoff:yoff+256,xoff:xoff+256,:]
+    if targets is not None:
+        for t in range(num_targets):
+            targets[t] = targets[t][yoff:yoff+256, xoff:xoff+256,:]
+
+    # jitter color values
+    if jitter:
+        gamma_mag = 0.5
+        color_mag = 0.2
+        # pick a random gamma correction factor
+        gamma = np.max((0.0, 1 + gamma_mag * (np.random.random()-0.5)))
+        # pick a random color balancing scheme
+        color_scale = 1 - np.random.random(3) * color_mag
+        color_scale /= np.max(color_scale)
+
+        for c in range(3):
+            img[:,:,c] = (np.power(img[:,:,c]*color_scale[c], gamma))
+
+        img[img > 255] = 255
+        img[img < 0] = 0
+
     # transform pixels to range (-0.5, 0.5)
-    img /= 255 - 0.5
-    return img
+    img = img/255 - 0.5
+    # transform targets to range(-1,1)
+    if targets is not None:
+        for t in range(num_targets):
+            targets[t] = targets[t]/255 * 2 - 1.0
+        return img, targets
+    else:
+        return img
+
 
 def prepare_output(img, input_shape):
     # separate if two images concatenated
@@ -166,38 +219,35 @@ class Pix2FaceTrainingData(Dataset):
         img = skimage.io.imread(self.input_filenames[idx])
         target_ext = os.path.splitext(self.target_PNCC_filenames[idx])[1]
 
-        target_PNCC = skimage.io.imread(self.target_PNCC_filenames[idx]).astype(np.float)/255.0
-        target_PNCC = target_PNCC  * 2 - 1.0  # range -1,1
+        target_PNCC = skimage.io.imread(self.target_PNCC_filenames[idx])
 
         if img.shape[0:2] != target_PNCC.shape[0:2]:
             print('img.shape = ' + str(img.shape))
             print('target_PNCC.shape = ' + str(target_PNCC.shape))
             raise Exception('Inconsistent input and target PNCC image sizes')
 
-        # transform PNCC to expected size
-        target_PNCC = skimage.transform.resize(target_PNCC, (256,256))
+        targets = [target_PNCC,]
 
         if self.target_offsets_filenames is not None:
-            target_offsets = skimage.io.imread(self.target_offsets_filenames[idx]).astype(np.float)/255.0
-            target_offsets = target_offsets * 2 - 1.0  # range -1,1
+            target_offsets = skimage.io.imread(self.target_offsets_filenames[idx])
             if img.shape[0:2] != target_offsets.shape[0:2]:
                 print('img.shape = ' + str(img.shape))
                 print('target_offsets.shape = ' + str(target_offsets.shape))
                 raise Exception('Inconsistent input and target offsets image sizes')
+            targets.append(target_offsets)
 
             # transform offsets to expected size
             target_offsets = skimage.transform.resize(target_offsets, (256,256))
 
-        img = prepare_input(img)
+        img, targets = prepare_input(img, targets, jitter=True)
         img = torch.Tensor(np.moveaxis(img, 2, 0))  # make num_channels first dimension
 
         # concatenate target images together
-        if self.target_offsets_filenames:
-            target = np.concatenate((target_PNCC, target_offsets),axis=2)
-        else:
-            target = target_PNCC
+        target_all = targets[0]
+        for target in targets[1:]:
+            target_all = np.concatenate((target_all, target),axis=2)
 
-        target = torch.Tensor(np.moveaxis(target, 2, 0))  # make num_channels first dimension
+        target = torch.Tensor(np.moveaxis(target_all, 2, 0))  # make num_channels first dimension
         return img, target
 
 
