@@ -25,7 +25,7 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir,
     print_interval = 100
     save_interval = 1000
     minibatch_size = 16
-    num_epochs = 3
+    num_epochs = 6
     cuda = True
 
     log_filename = os.path.join(output_dir, 'train_loss.npy')
@@ -45,7 +45,7 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir,
 
     if cuda:
         model.cuda()
-    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.99))
+    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.5, 0.95))
 
     train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir)
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=minibatch_size, shuffle=True, num_workers=8, pin_memory=True)
