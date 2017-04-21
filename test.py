@@ -1,6 +1,7 @@
 from __future__ import print_function
 import os
 import argparse
+import numpy as np
 import skimage.io
 import skimage.external.tifffile as tifffile
 import torch
@@ -18,7 +19,7 @@ def load_model(model_filename):
     return model
 
 
-def test(model, input, output_dir, cuda_device=None):
+def test(model, input, output_dir, cuda_device=None, output_format='tiff'):
     minibatch_size = 8
 
     if cuda_device is not None:
@@ -30,8 +31,8 @@ def test(model, input, output_dir, cuda_device=None):
         input_filenames = [os.path.join(input, f) for f in os.listdir(input)]
     else:
         input_filenames = [input,]
-    output_PNCC_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_PNCC.tiff') for f in input_filenames]
-    output_offsets_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_offsets.tiff') for f in input_filenames]
+    output_PNCC_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_PNCC.' + output_format) for f in input_filenames]
+    output_offsets_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_offsets.' + output_format) for f in input_filenames]
 
     num_inputs = len(input_filenames)
     for i_begin in range(0, num_inputs, minibatch_size):
@@ -65,8 +66,12 @@ def test(model, input, output_dir, cuda_device=None):
         for mb_i in range(len(minibatch_inputs)):
             i = i_begin + mb_i
             imgs_out = data.prepare_output(minibatch_outputs[mb_i], input_shapes[mb_i])
-            tifffile.imsave(output_PNCC_filenames[i], imgs_out[0])
-            tifffile.imsave(output_offsets_filenames[i], imgs_out[1])
+            if output_format == 'tiff':
+                tifffile.imsave(output_PNCC_filenames[i], imgs_out[0])
+                tifffile.imsave(output_offsets_filenames[i], imgs_out[1])
+            else:
+                skimage.io.imsave(output_PNCC_filenames[i], (imgs_out[0]/2.0 * 255).astype(np.uint8))
+                skimage.io.imsave(output_offsets_filenames[i], (imgs_out[1]/2.0 * 255).astype(np.uint8))
     return zip(output_PNCC_filenames, output_offsets_filenames)
 
 if __name__ == '__main__':

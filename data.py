@@ -130,6 +130,8 @@ def prepare_output(img, input_shape):
         for i in range(len(imgs_out)):
             imgs_out[i][:,s:s+mindim,:] = imgs[i]
 
+    # convert to 32 bit floating point
+    imgs_out = [img.astype(np.float32) for img in imgs_out]
 
     return imgs_out
 
