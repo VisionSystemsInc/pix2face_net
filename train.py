@@ -45,13 +45,14 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir,
 
     if cuda:
         model.cuda()
-    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.5, 0.95))
+    lr_max = 0.001
+    optimizer = optim.Adam(model.parameters(), lr_max, betas=(0.9, 0.999))
 
     train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir)
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=minibatch_size, shuffle=True, num_workers=8, pin_memory=True)
 
-    loss_fn = nn.SmoothL1Loss()
-    #loss_fn = nn.L1Loss()
+    #loss_fn = nn.SmoothL1Loss()
+    loss_fn = nn.L1Loss()
     if cuda:
         loss_fn = loss_fn.cuda()
 
@@ -64,6 +65,11 @@ def train(input_dir, PNCC_dir, offsets_dir, output_dir,
         mb_loss[:len(prev_log)] = prev_log
 
     for epoch in range(start_epoch, num_epochs):
+        lr_decay_scale = 3  # set so that lr is halved after 1st iteration
+        lr = lr_max / np.sqrt(lr_decay_scale*epoch+1)
+        print('Setting learning rate to ' + str(lr))
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
         for batch_idx, (input, target) in enumerate(train_loader):
                 if cuda:
                     input, target = input.cuda(), target.cuda()
