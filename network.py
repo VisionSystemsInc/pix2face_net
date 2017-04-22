@@ -31,19 +31,9 @@ class Unet(nn.Module):
 
         self.leaky_relu = nn.LeakyReLU(0.2, True)
         self.relu = nn.ReLU(True)
-
-        self.dropout_rate = 0.25
-        self.dropout = nn.Dropout2d(self.dropout_rate)
-
         self.tanh = nn.Tanh()
 
-    def forward(self, input, test=False):
-        # don't use random dropout at test time
-        if test:
-            dropout = lambda x : x*(1.0 - self.dropout_rate)
-        else:
-            dropout = self.dropout
-
+    def forward(self, input):
         # Encoder
         # Convolution layers:
         # input is (nc) x 256 x 256
@@ -96,9 +86,9 @@ class Unet(nn.Module):
 
 class Pix2PNCCNet(Unet):
     def __init__(self):
-        Unet.__init__(self, num_filters=64, channels_in=3, channels_out=3)
+        super(Pix2PNCCNet, self).__init__(num_filters=64, channels_in=3, channels_out=3)
 
 
 class Pix2FaceNet(Unet):
     def __init__(self):
-        Unet.__init__(self, num_filters=96, channels_in=3, channels_out=6)
+        super(Pix2FaceNet, self).__init__(num_filters=96, channels_in=3, channels_out=6)
