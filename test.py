@@ -15,6 +15,7 @@ def load_model(model_filename):
     model = network.Pix2FaceNet()
     model_state_dict = torch.load(model_filename)
     model.load_state_dict(model_state_dict)
+    #model.eval()
     print('...done.')
     return model
 
@@ -52,7 +53,7 @@ def test(model, input, output_dir, cuda_device=None, output_format='tiff'):
         if cuda_device is not None:
             mb.cuda(cuda_device)
         # run minibatch through the network
-        out = model.forward(Variable(mb),test=True)
+        out = model(Variable(mb))
         if cuda_device is not None:
             out = out.data.cpu()
         # convert minibatch output to list of images
