@@ -25,7 +25,7 @@ def train(input_dir, PNCC_dir, offsets_dir,
     """ Train the Pix2Face Model
     """
     # intervals are in units of epochs
-    minibatch_size = 16
+    minibatch_size = 4
     print_interval = 400 / minibatch_size
     save_interval = 8000 / minibatch_size
     validate_interval = 80000 / minibatch_size
@@ -51,7 +51,7 @@ def train(input_dir, PNCC_dir, offsets_dir,
 
     if cuda:
         model.cuda()
-    lr_max = 0.01
+    lr_max = 0.001
     optimizer = optim.Adam(model.parameters(), lr_max, betas=(0.9, 0.999))
 
     train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir)
@@ -63,7 +63,8 @@ def train(input_dir, PNCC_dir, offsets_dir,
     if cuda:
         loss_fn = loss_fn.cuda()
 
-    num_minibatches_per_epoch = np.min((10000, len(train_loader)))
+    images_per_epoch = 200000
+    num_minibatches_per_epoch = np.min((images_per_epoch/minibatch_size, len(train_loader)))
     num_minibatches = num_epochs*num_minibatches_per_epoch
     mb_loss = np.zeros(num_minibatches) + np.nan
     val_loss = np.zeros(num_epochs+1) + np.nan
@@ -77,8 +78,8 @@ def train(input_dir, PNCC_dir, offsets_dir,
 
     for epoch in range(start_epoch, num_epochs):
         model.train()
-        lr_decay_scale = 1.0
-        lr = lr_max / (lr_decay_scale*epoch+1)
+        lr_decay_scale = 0.25
+        lr = lr_max / (2**(lr_decay_scale*epoch))
         print('Setting learning rate to ' + str(lr))
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
