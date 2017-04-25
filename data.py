@@ -193,7 +193,8 @@ def save_ply(img, pncc_n, offsets_n, filename):
 
 
 class Pix2FaceTrainingData(Dataset):
-    def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None):
+    def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None, jitter=True):
+        self.jitter = jitter
         print('input_dir = ' + input_dir)
         print('target_PNCC_dir = ' + target_PNCC_dir)
         if target_offsets_dir is not None:
@@ -241,7 +242,7 @@ class Pix2FaceTrainingData(Dataset):
             # transform offsets to expected size
             target_offsets = skimage.transform.resize(target_offsets, (256,256))
 
-        img, targets = prepare_input(img, targets, jitter=True)
+        img, targets = prepare_input(img, targets, jitter=self.jitter)
         img = torch.Tensor(np.moveaxis(img, 2, 0))  # make num_channels first dimension
 
         # concatenate target images together
