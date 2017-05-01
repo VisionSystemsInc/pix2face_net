@@ -21,7 +21,7 @@ def start_pdb(sig, frame):
 def train(input_dir, PNCC_dir, offsets_dir,
           val_input_dir, val_PNCC_dir, val_offsets_dir,
           output_dir,
-          start_epoch=0, continue_model_filename=None, continue_log_filename=None):
+          start_epoch=0):
     """ Train the Pix2Face Model
     """
     # intervals are in units of epochs
@@ -29,7 +29,7 @@ def train(input_dir, PNCC_dir, offsets_dir,
     print_interval = 400 / minibatch_size
     save_interval = 8000 / minibatch_size
     validate_interval = 80000 / minibatch_size
-    num_epochs = 20
+    num_epochs = 25
     cuda = True
 
     log_filename = os.path.join(output_dir, 'train_loss.npy')
@@ -45,7 +45,8 @@ def train(input_dir, PNCC_dir, offsets_dir,
         model_epoch_filename = os.path.join(output_dir, 'pix2face_unet_epoch_%d.pth')
 
 
-    if continue_model_filename is not None:
+    if start_epoch > 0:
+        continue_model_filename = model_epoch_filename % (start_epoch - 1)
         model_state_dict = torch.load(continue_model_filename)
         model.load_state_dict(model_state_dict)
 
@@ -68,13 +69,17 @@ def train(input_dir, PNCC_dir, offsets_dir,
     num_minibatches = num_epochs*num_minibatches_per_epoch
     mb_loss = np.zeros(num_minibatches) + np.nan
     val_loss = np.zeros(num_epochs+1) + np.nan
-    np.save(val_loss_filename, val_loss)
     mb_loss_epoch = np.linspace(0,num_epochs, len(mb_loss))
     np.save(os.path.join(output_dir, 'train_loss_epoch_num.npy'), mb_loss_epoch)
 
-    if continue_log_filename is not None:
+    if start_epoch > 0:
+        continue_log_filename = log_epoch_filename % (start_epoch - 1)
         prev_log = np.load(continue_log_filename)
         mb_loss[:len(prev_log)] = prev_log
+        prev_val_loss = np.load(val_loss_filename)
+        val_loss[:len(prev_val_loss)] = prev_val_loss
+
+    np.save(val_loss_filename, val_loss)
 
     for epoch in range(start_epoch, num_epochs):
         model.train()
@@ -137,11 +142,9 @@ if __name__ == '__main__':
     parser.add_argument('--val_offsets_dir', default=None, help='directory containing validation target offset images')
     parser.add_argument('--output_dir', required=True, help='directory to write model and logs to')
     parser.add_argument('--start_epoch', required=False, type=int, default=0)
-    parser.add_argument('--continue_model', required=False, default=None)
-    parser.add_argument('--continue_log', required=False, default=None)
     args = parser.parse_args()
     signal.signal(signal.SIGUSR1, start_pdb)
     print('pid = ' + str(os.getpid()))
     train(args.input_dir, args.PNCC_dir, args.offsets_dir,
           args.val_input_dir, args.val_PNCC_dir, args.val_offsets_dir, args.output_dir,
-          args.start_epoch, args.continue_model, args.continue_log)
+          args.start_epoch)
