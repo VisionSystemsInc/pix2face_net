@@ -30,7 +30,7 @@ def minibatch_to_images(mb):
     return images
 
 
-def prepare_input(img, targets=None, jitter=False):
+def prepare_input(img, targets=None, jitter=False, min_crop_ratio=0.75, max_crop_ratio=1.0, max_crop_shift_ratio=0.1, crop_center_x=0.5, crop_center_y=0.5):
     # ensure input is a color image
     if len(img.shape) < 3 or img.shape[2] < 3:
         img = skimage.color.gray2rgb(img)
@@ -46,8 +46,11 @@ def prepare_input(img, targets=None, jitter=False):
     # randomly resize and crop image
     mindim = np.min(img.shape[0:2])
     if jitter:
-        # randomly resize such that min dimension is in range (256,300)
-        new_mindim = np.random.randint(256,300)
+        # crop will be size 256x256
+        # randomly resize such that crop has size ratio in desired range
+        mindim_min = int(256/max_crop_ratio)
+        mindim_max = int(256/min_crop_ratio)
+        new_mindim = np.random.randint(mindim_min, mindim_max)
     else:
         new_mindim = 256
     scale = np.float(new_mindim)/mindim
@@ -60,14 +63,23 @@ def prepare_input(img, targets=None, jitter=False):
 
     # crop square
     if jitter:
-        max_x = img.shape[1] - 256
-        max_y = img.shape[0] - 256
-        if max_x > 0:
-            xoff = np.random.randint(0,max_x)
+        center_x = img.shape[1] * crop_center_x
+        center_y = img.shape[0] * crop_center_y
+        max_x = int(center_x + max_crop_shift_ratio*img.shape[1] - 128)
+        max_x = min(max_x, img.shape[1] - 256)
+        min_x = int(center_x - max_crop_shift_ratio*img.shape[1] - 128)
+        min_x = max(min_x, 0)
+        max_y = int(center_y + max_crop_shift_ratio*img.shape[0] - 128)
+        max_y = min(max_y, img.shape[0] - 256)
+        min_y = int(center_y - max_crop_shift_ratio*img.shape[0] - 128)
+        min_y = max(min_y, 0)
+
+        if max_x > min_x:
+            xoff = np.random.randint(min_x,max_x)
         else:
             xoff = 0
-        if max_y > 0:
-            yoff = np.random.randint(0,max_y)
+        if max_y > min_y:
+            yoff = np.random.randint(min_y,max_y)
         else:
             yoff = 0
     else:
@@ -80,7 +92,7 @@ def prepare_input(img, targets=None, jitter=False):
 
     # jitter color values
     if jitter:
-        gamma_mag = 0.5
+        gamma_mag = 0.4
         color_mag = 0.2
         # pick a random gamma correction factor
         gamma = np.max((0.0, 1 + gamma_mag * (np.random.random()-0.5)))
@@ -136,24 +148,32 @@ def prepare_output(img, input_shape):
     return imgs_out
 
 
-def unnormalize_PNCC(pncc_in):
+def unnormalize_PNCC(pncc_in, use_3DMM_bbox=True):
     """ convert PNCC image with values in range (-1,1) to actual 3-d coordinates.
         Note that the bounding box values below must match those in face3d/semantic_map.cxx
     """
-    min_val = np.array((-100.0, -130.0, -120.0))
-    max_val = np.array((100.0, 130.0, 120.0))
+    if use_3DMM_bbox:
+        min_val = np.array((-100.0, -130.0, -25.0))
+        max_val = np.array((100.0, 100.0, 150.0))
+    else:
+        min_val = np.array((-100.0, -130.0, -120.0))
+        max_val = np.array((100.0, 130.0, 120.0))
     scale = (max_val - min_val)/2.0
     offset = (max_val + min_val)/2.0
     pncc = pncc_in * scale + offset
     return pncc
 
 
-def unnormalize_offsets(offsets_in):
+def unnormalize_offsets(offsets_in, use_3DMM_bbox=True):
     """ convert offset image with values in range (-1,1) to actual 3-d coordinates.
         Note that the bounding box values below must match those in face3d/semantic_map.cxx
     """
-    min_val = np.array((-20.0, -20.0, -20.0))
-    max_val = np.array((20.0, 20.0, 20.0))
+    if use_3DMM_bbox:
+        min_val = np.array((-25.0, -25.0, -25.0))
+        max_val = np.array((25.0, 25.0, 25.0))
+    else:
+        min_val = np.array((-20.0, -20.0, -20.0))
+        max_val = np.array((20.0, 20.0, 20.0))
     scale = (max_val - min_val)/2.0
     offset = (max_val + min_val)/2.0
     offsets = offsets_in * scale + offset
@@ -195,6 +215,11 @@ def save_ply(img, pncc_n, offsets_n, filename):
 class Pix2FaceTrainingData(Dataset):
     def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None, jitter=True):
         self.jitter = jitter
+        self.min_crop_ratio = 0.6
+        self.max_crop_ratio = 0.9
+        self.max_crop_shift_ratio = 0.05
+        self.crop_center_x = 0.5
+        self.crop_center_y = 0.6
         print('input_dir = ' + input_dir)
         print('target_PNCC_dir = ' + target_PNCC_dir)
         if target_offsets_dir is not None:
@@ -242,7 +267,12 @@ class Pix2FaceTrainingData(Dataset):
             # transform offsets to expected size
             target_offsets = skimage.transform.resize(target_offsets, (256,256))
 
-        img, targets = prepare_input(img, targets, jitter=self.jitter)
+        img, targets = prepare_input(img, targets, jitter=self.jitter,
+                                     min_crop_ratio=self.min_crop_ratio,
+                                     max_crop_ratio=self.max_crop_ratio,
+                                     max_crop_shift_ratio=self.max_crop_shift_ratio,
+                                     crop_center_x=self.crop_center_x,
+                                     crop_center_y=self.crop_center_y)
         img = torch.Tensor(np.moveaxis(img, 2, 0))  # make num_channels first dimension
 
         # concatenate target images together

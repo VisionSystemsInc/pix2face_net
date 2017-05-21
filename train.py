@@ -29,7 +29,7 @@ def train(input_dir, PNCC_dir, offsets_dir,
     print_interval = 400 / minibatch_size
     save_interval = 8000 / minibatch_size
     validate_interval = 80000 / minibatch_size
-    num_epochs = 25
+    num_epochs = 60
     cuda = True
 
     log_filename = os.path.join(output_dir, 'train_loss.npy')
@@ -53,7 +53,8 @@ def train(input_dir, PNCC_dir, offsets_dir,
     if cuda:
         model.cuda()
     lr_max = 0.001
-    optimizer = optim.Adam(model.parameters(), lr_max, betas=(0.9, 0.999))
+    optimizer = optim.Adam(model.parameters(), lr_max, betas=(0.5, 0.9))
+    #optimizer = optim.SGD(model.parameters(), lr_max)
 
     train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir)
     val_set = data.Pix2FaceTrainingData(val_input_dir, val_PNCC_dir, val_offsets_dir)
@@ -64,7 +65,7 @@ def train(input_dir, PNCC_dir, offsets_dir,
     if cuda:
         loss_fn = loss_fn.cuda()
 
-    images_per_epoch = 200000
+    images_per_epoch = 100000
     num_minibatches_per_epoch = np.min((images_per_epoch/minibatch_size, len(train_loader)))
     num_minibatches = num_epochs*num_minibatches_per_epoch
     mb_loss = np.zeros(num_minibatches) + np.nan
@@ -83,7 +84,7 @@ def train(input_dir, PNCC_dir, offsets_dir,
 
     for epoch in range(start_epoch, num_epochs):
         model.train()
-        lr_decay_scale = 0.25
+        lr_decay_scale = 5.0 / num_epochs
         lr = lr_max / (2**(lr_decay_scale*epoch))
         print('Setting learning rate to ' + str(lr))
         for param_group in optimizer.param_groups:
