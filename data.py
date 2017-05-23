@@ -117,18 +117,23 @@ def prepare_input(img, targets=None, jitter=False, min_crop_ratio=0.75, max_crop
         return img
 
 
-def prepare_output(img, input_shape):
+def prepare_output(img, input_shape, use_3DMM_bbox=True):
     # separate if two images concatenated
     if img.shape[2] == 6:
-        imgs = (img[:,:,0:3], img[:,:,3:6])
+        imgs = [img[:,:,0:3].astype(np.float32), img[:,:,3:6].astype(np.float32)]
     elif img.shape[2] == 3:
-        imgs = (img,)
+        imgs = [img.astype(np.float32),]
     else:
         raise Exception('Unexpected image shape: ' + str(img.shape))
 
+    # unnormalize pncc and offset values
+    imgs[0] = unnormalize_PNCC(imgs[0])
+    if len(imgs) > 0:
+        imgs[1] = unnormalize_offsets(imgs[1])
+
     # convert to expected size (square aspect ratio)
     mindim = np.min(input_shape[0:2])
-    imgs = [skimage.transform.resize(img, (mindim,mindim)) for img in imgs]
+    imgs = [skimage.transform.resize(img, (mindim,mindim)).astype(np.float32) for img in imgs]
 
     # create outputs of correct size
     imgs_out = [np.zeros((input_shape[0],input_shape[1],3), img.dtype) for img in imgs]
@@ -142,8 +147,6 @@ def prepare_output(img, input_shape):
         for i in range(len(imgs_out)):
             imgs_out[i][:,s:s+mindim,:] = imgs[i]
 
-    # convert to 32 bit floating point
-    imgs_out = [img.astype(np.float32) for img in imgs_out]
 
     return imgs_out
 
@@ -179,14 +182,46 @@ def unnormalize_offsets(offsets_in, use_3DMM_bbox=True):
     offsets = offsets_in * scale + offset
     return offsets
 
-
-def save_ply(img, pncc_n, offsets_n, filename):
-    """ Save a point cloud with r,g,b taken from the input image
-        pncc and offsets should be in normalized form (values in range (-1,1))
+def normalize_PNCC(pncc_in, use_3DMM_bbox=True):
+    """ convert pncc image with 3-d coordinates to values in range (-1,1)
+        Note that the bounding box values below must match those in face3d/semantic_map.cxx
     """
-    # unnormalize pncc and offset images
-    pncc = unnormalize_PNCC(pncc_n)
-    offsets = unnormalize_offsets(offsets_n)
+    if use_3DMM_bbox:
+        min_val = np.array((-100.0, -130.0, -25.0))
+        max_val = np.array((100.0, 100.0, 150.0))
+    else:
+        min_val = np.array((-100.0, -130.0, -120.0))
+        max_val = np.array((100.0, 130.0, 120.0))
+    scale = (max_val - min_val)/2.0
+    offset = (max_val + min_val)/2.0
+    pncc = (pncc_in - offset ) / scale
+    pncc[pncc < -1] = -1
+    pncc[pncc > 1] = 1
+    return pncc
+
+
+def normalize_offsets(offsets_in, use_3DMM_bbox=True):
+    """ convert offset image with real 3-d values to range (-1,1)
+        Note that the bounding box values below must match those in face3d/semantic_map.cxx
+    """
+    if use_3DMM_bbox:
+        min_val = np.array((-25.0, -25.0, -25.0))
+        max_val = np.array((25.0, 25.0, 25.0))
+    else:
+        min_val = np.array((-20.0, -20.0, -20.0))
+        max_val = np.array((20.0, 20.0, 20.0))
+    scale = (max_val - min_val)/2.0
+    offset = (max_val + min_val)/2.0
+    offsets = (offsets_in - offset) / scale
+    offsets[offsets < -1] = -1
+    offsets[offsets > 1] = 1
+    return offsets
+
+
+def save_ply(img, pncc, offsets, filename):
+    """ Save a point cloud with r,g,b taken from the input image
+        pncc and offsets should be in unnormalized form
+    """
     # create mask of valid points
     mag_sqrd_thresh = 100.0  # no valid points near origin
     mask = np.sum(pncc*pncc,axis=2) > mag_sqrd_thresh

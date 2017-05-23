@@ -20,7 +20,7 @@ def load_model(model_filename):
     return model
 
 
-def test(model, input, output_dir, cuda_device=None, output_format='tiff'):
+def test(model, input, output_dir, cuda_device=None, output_format='tiff', use_3DMM_bbox=True):
     minibatch_size = 8
 
     if cuda_device is not None:
@@ -66,13 +66,17 @@ def test(model, input, output_dir, cuda_device=None, output_format='tiff'):
         # write out output images
         for mb_i in range(len(minibatch_inputs)):
             i = i_begin + mb_i
-            imgs_out = data.prepare_output(minibatch_outputs[mb_i], input_shapes[mb_i])
+            imgs_out = data.prepare_output(minibatch_outputs[mb_i], input_shapes[mb_i], use_3DMM_bbox)
             if output_format == 'tiff':
                 tifffile.imsave(output_PNCC_filenames[i], imgs_out[0])
                 tifffile.imsave(output_offsets_filenames[i], imgs_out[1])
             else:
-                skimage.io.imsave(output_PNCC_filenames[i], (imgs_out[0]/2.0 * 255).astype(np.uint8))
-                skimage.io.imsave(output_offsets_filenames[i], (imgs_out[1]/2.0 * 255).astype(np.uint8))
+                pncc_out = data.normalize_PNCC(imgs_out[0])
+                pncc_out = (pncc_out/2.0 * 255).astype(np.uint8)
+                skimage.io.imsave(output_PNCC_filenames[i], pncc_out)
+                offsets_out = data.normalize_offsets(imgs_out[1])
+                offsets_out = (offsets_out/2.0 * 255).astype(np.uint8)
+                skimage.io.imsave(output_offsets_filenames[i], offsets_out)
     return zip(output_PNCC_filenames, output_offsets_filenames)
 
 if __name__ == '__main__':
