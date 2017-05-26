@@ -20,12 +20,15 @@
 
 ## Training
 ```
-python train.py --input_dir $INPUT_DIR --PNCC_dir $PNCC_DIR --offsets_dir $OFFSETS_DIR --val_input_dir $VAL_INPUT_DIR --val_PNCC_dir $VAL_PNCC_DIR --val_offsets_dir $VAL_OFFSETS_DIR --output_dir $OUTPUT_DIR
+python train.py --input_dir $INPUT_DIR --PNCC_dir $PNCC_DIR --offsets_dir $OFFSETS_DIR \
+--val_input_dir $VAL_INPUT_DIR --val_PNCC_dir $VAL_PNCC_DIR --val_offsets_dir $VAL_OFFSETS_DIR \
+--output_dir $OUTPUT_DIR
 ```
 
 ## Testing
 ```
-python test.py --model $OUTPUT_DIR/pix2face_unet.pth --input <image_or_directory> --output_dir <output_dir>
+python test.py --model $OUTPUT_DIR/pix2face_unet.pth \
+--input <image_or_directory> --output_dir <output_dir>
 ```
 
 ## Contact
