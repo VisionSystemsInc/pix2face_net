@@ -22,7 +22,7 @@ def load_model(model_filename):
 
 def test(model, input, output_dir, cuda_device=None, output_format='tiff', use_3DMM_bbox=True):
     minibatch_size = 8
-
+    model = load_model(model)
     if cuda_device is not None:
         model = model.cuda(cuda_device)
 
