@@ -10,7 +10,9 @@ from torch.autograd import Variable
 import data
 import network
 
+
 def load_model(model_filename):
+    """ load the pytorch model from disk """
     print('loading ' + str(model_filename) + ' ...')
     model = network.Pix2FaceNet()
     model_state_dict = torch.load(model_filename)
@@ -20,33 +22,23 @@ def load_model(model_filename):
     return model
 
 
-def test(model, input, output_dir, cuda_device=None, output_format='tiff', use_3DMM_bbox=True):
+def test(model, inputs, cuda_device=None, use_3DMM_bbox=True):
+    """ run the network on inputs, return list of numpy arrays """
     minibatch_size = 8
-    model = load_model(model)
     if cuda_device is not None:
         model = model.cuda(cuda_device)
 
-    if type(input) == list:
-        input_filenames = input
-    elif os.path.isdir(input):
-        input_filenames = [os.path.join(input, f) for f in os.listdir(input)]
-    else:
-        input_filenames = [input,]
-    output_PNCC_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_PNCC.' + output_format) for f in input_filenames]
-    output_offsets_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_offsets.' + output_format) for f in input_filenames]
-
-    num_inputs = len(input_filenames)
+    num_inputs = len(inputs)
+    outputs = list()
     for i_begin in range(0, num_inputs, minibatch_size):
         i_end = min(i_begin+minibatch_size, num_inputs)
         minibatch_inputs = list()
         input_shapes = list()
         for i in range(i_begin, i_end):
-            # load image
-            input = skimage.io.imread(input_filenames[i])
             # save original image shapes for later
-            input_shapes.append(input.shape)
+            input_shapes.append(inputs[i].shape)
             # normalize / convert to float
-            minibatch_inputs.append( data.prepare_input(input) )
+            minibatch_inputs.append( data.prepare_input(inputs[i]) )
 
         # create minibatch
         mb = data.images_to_minibatch(minibatch_inputs)
@@ -63,21 +55,56 @@ def test(model, input, output_dir, cuda_device=None, output_format='tiff', use_3
             print('len(inputs) = ' + str(len(minibatch_inputs)))
             print('len(outputs) = ' + str(len(minibatch_outputs)))
             raise Exception('size of minibatch inputs and outputs do not match')
-        # write out output images
+        # extract output images from tensor
         for mb_i in range(len(minibatch_inputs)):
             i = i_begin + mb_i
             imgs_out = data.prepare_output(minibatch_outputs[mb_i], input_shapes[mb_i], use_3DMM_bbox)
+            outputs.append(imgs_out)
+    return outputs
+
+
+def test_files(model_filename, input, output_dir, cuda_device=None, output_format='tiff', use_3DMM_bbox=True):
+    """ run the network stored in model_filename on image(s) listed in input, write results to disk """
+    chunk_size = 32  # maximum number of images to load at once
+    model = load_model(model_filename)
+
+    if type(input) == list:
+        input_filenames = input
+    elif os.path.isdir(input):
+        input_filenames = [os.path.join(input, f) for f in os.listdir(input)]
+    else:
+        input_filenames = [input,]
+    output_PNCC_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_PNCC.' + output_format) for f in input_filenames]
+    output_offsets_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_offsets.' + output_format) for f in input_filenames]
+
+    num_inputs = len(input_filenames)
+    for i_begin in range(0, num_inputs, chunk_size):
+        i_end = min(i_begin+chunk_size, num_inputs)
+        chunk_inputs = list()
+        for i in range(i_begin, i_end):
+            # load image
+            input = skimage.io.imread(input_filenames[i])
+            chunk_inputs.append( input )
+        chunk_outputs = test(model, chunk_inputs, cuda_device, use_3DMM_bbox)
+        if len(chunk_outputs) != len(chunk_inputs):
+            print('len(inputs) = ' + str(len(chunk_inputs)))
+            print('len(outputs) = ' + str(len(chunk_outputs)))
+            raise Exception('size of chunk inputs and outputs do not match')
+        # write out output images
+        for chunk_i in range(len(chunk_inputs)):
+            i = i_begin + chunk_i
             if output_format == 'tiff':
-                tifffile.imsave(output_PNCC_filenames[i], imgs_out[0])
-                tifffile.imsave(output_offsets_filenames[i], imgs_out[1])
+                tifffile.imsave(output_PNCC_filenames[i], chunk_outputs[chunk_i][0])
+                tifffile.imsave(output_offsets_filenames[i], chunk_outputs[chunk_i][1])
             else:
-                pncc_out = data.normalize_PNCC(imgs_out[0])
+                pncc_out = data.normalize_PNCC(chunk_outputs[chunk_i][0], use_3DMM_bbox)
                 pncc_out = (pncc_out/2.0 * 255).astype(np.uint8)
                 skimage.io.imsave(output_PNCC_filenames[i], pncc_out)
-                offsets_out = data.normalize_offsets(imgs_out[1])
+                offsets_out = data.normalize_offsets(chunk_outputs[chunk_i][1], use_3DMM_bbox)
                 offsets_out = (offsets_out/2.0 * 255).astype(np.uint8)
                 skimage.io.imsave(output_offsets_filenames[i], offsets_out)
     return zip(output_PNCC_filenames, output_offsets_filenames)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Pix2Face network testing')
@@ -85,6 +112,6 @@ if __name__ == '__main__':
     parser.add_argument('--input', required=True, help='filename or directory of input image(s)')
     parser.add_argument('--output_dir', required=True, help='directory to write output to')
     args = parser.parse_args()
-    output_filenames = test(args.model, args.input, args.output_dir)
+    output_filenames = test_files(args.model, args.input, args.output_dir)
     for fname in output_filenames:
         print(fname)
