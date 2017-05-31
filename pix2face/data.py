@@ -9,7 +9,6 @@ import skimage.morphology
 
 import torch
 from torch.utils.data import Dataset
-import torchvision
 
 
 def images_to_minibatch(images):
