@@ -127,9 +127,9 @@ def prepare_output(img, input_shape, use_3DMM_bbox=True):
         raise Exception('Unexpected image shape: ' + str(img.shape))
 
     # unnormalize pncc and offset values
-    imgs[0] = unnormalize_PNCC(imgs[0])
+    imgs[0] = unnormalize_PNCC(imgs[0], use_3DMM_bbox)
     if len(imgs) > 0:
-        imgs[1] = unnormalize_offsets(imgs[1])
+        imgs[1] = unnormalize_offsets(imgs[1], use_3DMM_bbox)
 
     # convert to expected size (square aspect ratio)
     mindim = np.min(input_shape[0:2])
