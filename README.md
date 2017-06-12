@@ -31,5 +31,10 @@ python test.py --model $OUTPUT_DIR/pix2face_unet.pth \
 --input <image_or_directory> --output_dir <output_dir>
 ```
 
+## Demo
+See demo.py for an example of a transformation from image --> PNCC + offsets --> 3D Point Cloud.
+
+In order to run the demo, you will need to train the network or download a pre-trained model.
+
 ## Contact
 Daniel Crispell [dan@visionsystemsinc.com](mailto:dan@visionsystemsinc.com)
