@@ -55,10 +55,10 @@ def prepare_input(img, targets=None, jitter=False, min_crop_ratio=0.75, max_crop
     scale = np.float(new_mindim)/mindim
     new_shape = np.ceil(scale*np.array(img.shape[0:2])).astype(np.int)
 
-    img = skimage.transform.resize(img, new_shape)
+    img = skimage.transform.resize(img, new_shape, mode='constant')
     if targets is not None:
         for t in range(num_targets):
-            targets[t] = skimage.transform.resize(targets[t], new_shape)
+            targets[t] = skimage.transform.resize(targets[t], new_shape, mode='constant')
 
     # crop square
     if jitter:
@@ -132,7 +132,7 @@ def prepare_output(img, input_shape, use_3DMM_bbox=True):
 
     # convert to expected size (square aspect ratio)
     mindim = np.min(input_shape[0:2])
-    imgs = [skimage.transform.resize(img, (mindim,mindim)).astype(np.float32) for img in imgs]
+    imgs = [skimage.transform.resize(img, (mindim,mindim), mode='constant').astype(np.float32) for img in imgs]
 
     # create outputs of correct size
     imgs_out = [np.zeros((input_shape[0],input_shape[1],3), img.dtype) for img in imgs]
@@ -299,7 +299,7 @@ class Pix2FaceTrainingData(Dataset):
             targets.append(target_offsets)
 
             # transform offsets to expected size
-            target_offsets = skimage.transform.resize(target_offsets, (256,256))
+            target_offsets = skimage.transform.resize(target_offsets, (256,256), mode='constant')
 
         img, targets = prepare_input(img, targets, jitter=self.jitter,
                                      min_crop_ratio=self.min_crop_ratio,
