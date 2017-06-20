@@ -43,13 +43,15 @@ def test(model, inputs, cuda_device=None, use_3DMM_bbox=True):
         # create minibatch
         mb = data.images_to_minibatch(minibatch_inputs)
         if cuda_device is not None:
-            mb.cuda(cuda_device)
+            mb = mb.cuda(cuda_device)
         # run minibatch through the network
         out = model(Variable(mb))
         if cuda_device is not None:
             out = out.data.cpu()
+        else:
+            out = out.data
         # convert minibatch output to list of images
-        minibatch_outputs = data.minibatch_to_images(out.data)
+        minibatch_outputs = data.minibatch_to_images(out)
         # sanity check on size of output
         if len(minibatch_outputs) != len(minibatch_inputs):
             print('len(inputs) = ' + str(len(minibatch_inputs)))
