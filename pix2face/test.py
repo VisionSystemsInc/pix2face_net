@@ -28,6 +28,14 @@ def test(model, inputs, cuda_device=None, use_3DMM_bbox=True):
     if cuda_device is not None:
         model = model.cuda(cuda_device)
 
+    single_input = False
+    if type(inputs) != list and type(inputs) != tuple:
+        if type(inputs) == np.ndarray:
+            single_input = True
+            inputs = [inputs,]
+        else:
+            raise Exception('Unexpected input type ' + str(type(inputs)))
+
     num_inputs = len(inputs)
     outputs = list()
     for i_begin in range(0, num_inputs, minibatch_size):
@@ -62,6 +70,9 @@ def test(model, inputs, cuda_device=None, use_3DMM_bbox=True):
             i = i_begin + mb_i
             imgs_out = data.prepare_output(minibatch_outputs[mb_i], input_shapes[mb_i], use_3DMM_bbox)
             outputs.append(imgs_out)
+
+    if single_input:
+        return outputs[0]
     return outputs
 
 
