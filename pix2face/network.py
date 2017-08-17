@@ -16,7 +16,7 @@ class Unet(nn.Module):
         self.conv7 = nn.Conv2d(num_filters * 8, num_filters * 8, 4, 2, 1)
         self.conv8 = nn.Conv2d(num_filters * 8, num_filters * 8, 4, 2, 1)
 
-        self.up = nn.UpsamplingBilinear2d(scale_factor=2)
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear')
 
         self.dconv1 = nn.Conv2d(num_filters*8, num_filters*8, 3, 1, 1)
         self.dconv2 = nn.Conv2d(num_filters*8*2, num_filters*8, 3, 1, 1)
