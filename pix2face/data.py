@@ -29,7 +29,7 @@ def minibatch_to_images(mb):
     return images
 
 
-def prepare_input(img, targets=None, jitter=False, min_crop_ratio=0.75, max_crop_ratio=1.0, max_crop_shift_ratio=0.1, crop_center_x=0.5, crop_center_y=0.5):
+def prepare_input(img, targets=None, jitter=False, min_crop_ratio=0.75, max_crop_ratio=1.0, max_crop_shift_ratio=0.1, crop_center_x=0.5, crop_center_y=0.5, rot_range=45.0):
     # ensure input is a color image
     if len(img.shape) < 3 or img.shape[2] < 3:
         img = skimage.color.gray2rgb(img)
@@ -41,6 +41,14 @@ def prepare_input(img, targets=None, jitter=False, min_crop_ratio=0.75, max_crop
         num_targets = len(targets)
         for t in range(num_targets):
             targets[t] = targets[t].astype(np.float)
+
+    # randomly rotate image
+    if jitter:
+        rot_angle = np.random.uniform(-rot_range, rot_range)
+        img = skimage.transform.rotate(img, rot_angle, mode='edge')
+        if targets is not None:
+            for t in range(num_targets):
+                targets[t] = skimage.transform.rotate(targets[t], rot_angle, mode='edge')
 
     # randomly resize and crop image
     mindim = np.min(img.shape[0:2])
@@ -181,7 +189,7 @@ def unnormalize_offsets(offsets_in, use_3DMM_bbox=True):
     offsets = offsets_in * scale + offset
     return offsets
 
-def normalize_PNCC(pncc_in, use_3DMM_bbox=True):
+def normalize_PNCC(pncc_in, use_3DMM_bbox=True, to_byte=False):
     """ convert pncc image with 3-d coordinates to values in range (-1,1)
         Note that the bounding box values below must match those in face3d/semantic_map.cxx
     """
@@ -249,11 +257,12 @@ def save_ply(img, pncc, offsets, filename):
 class Pix2FaceTrainingData(Dataset):
     def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None, jitter=True):
         self.jitter = jitter
-        self.min_crop_ratio = 0.6
-        self.max_crop_ratio = 0.9
+        self.min_crop_ratio = 0.8
+        self.max_crop_ratio = 1.0
         self.max_crop_shift_ratio = 0.05
         self.crop_center_x = 0.5
-        self.crop_center_y = 0.6
+        self.crop_center_y = 0.5
+        self.rot_range = 20.0
         print('input_dir = ' + input_dir)
         print('target_PNCC_dir = ' + target_PNCC_dir)
         if target_offsets_dir is not None:
@@ -306,7 +315,8 @@ class Pix2FaceTrainingData(Dataset):
                                      max_crop_ratio=self.max_crop_ratio,
                                      max_crop_shift_ratio=self.max_crop_shift_ratio,
                                      crop_center_x=self.crop_center_x,
-                                     crop_center_y=self.crop_center_y)
+                                     crop_center_y=self.crop_center_y,
+                                     rot_range=self.rot_range)
         img = torch.Tensor(np.moveaxis(img, 2, 0))  # make num_channels first dimension
 
         # concatenate target images together
