@@ -17,13 +17,13 @@ def load_model(model_filename):
     model = network.Pix2FaceNet()
     model_state_dict = torch.load(model_filename)
     model.load_state_dict(model_state_dict)
-    #model.eval()
     print('...done.')
     return model
 
 
 def test(model, inputs, cuda_device=None, use_3DMM_bbox=True):
     """ run the network on inputs, return list of numpy arrays """
+    model.eval()
     minibatch_size = 8
     if cuda_device is not None:
         model = model.cuda(cuda_device)

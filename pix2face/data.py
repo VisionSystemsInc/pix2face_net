@@ -10,6 +10,51 @@ import skimage.morphology
 import torch
 from torch.utils.data import Dataset
 
+from collections import namedtuple
+
+Rect = namedtuple('Rect',('left','top','right','bottom'))
+
+def shift_and_scale_rect(rect, center_x=0.5, center_y=0.5, scale=1.0, make_square=False):
+    """
+    Given a Rect, shift, scale, and optionally make square
+    Assumes image coordinates, i.e. "top" means min y
+    No bounds checking is performed.
+    Returns the new Rect.
+    """
+    half_scale = scale/2.0
+    height = rect.bottom - rect.top
+    width = rect.right - rect.left
+    new_center_x = rect.left + center_x*width
+    new_center_y = rect.top + center_y*height
+    new_half_height = scale*height/2.0
+    new_half_width = scale*width/2.0
+    if make_square:
+        new_half_width = new_half_height = min(new_half_width, new_half_height)
+    new_top = int(new_center_y - new_half_height)
+    new_bottom = int(new_center_y + new_half_height)
+    new_left = int(new_center_x - new_half_width)
+    new_right = int(new_center_x + new_half_width)
+    return Rect(left=new_left, top=new_top, right=new_right, bottom=new_bottom)
+
+
+def sanitize_crop(rect, img_shape):
+    """ convert a crop region to image and crop bounds such that:
+    crop[crop_rect.top:crop_rect.bottom,..] = img[img_rect.top:img_rect.bottom,..]
+    """
+    # clip bounds
+    top = max(0, rect.top)
+    bottom = min(img_shape[0], rect.bottom)
+    left = max(0, rect.left)
+    right = min(img_shape[1], rect.right)
+    # compute offset at which to place image data
+    crop_top = top - rect.top
+    crop_bottom = crop_top + (bottom - top)
+    crop_left = left - rect.left
+    crop_right = crop_left + (right - left)
+    crop_rect = Rect(crop_left, crop_top, crop_right, crop_bottom)
+    img_rect = Rect(left, top, right, bottom)
+    return img_rect, crop_rect
+
 
 def images_to_minibatch(images):
     num_images = len(images)
@@ -29,73 +74,69 @@ def minibatch_to_images(mb):
     return images
 
 
-def prepare_input(img, targets=None, jitter=False, min_crop_ratio=0.75, max_crop_ratio=1.0, max_crop_shift_ratio=0.1, crop_center_x=0.5, crop_center_y=0.5, rot_range=45.0):
+def prepare_input(img, targets=None, face_box=None, jitter=False, min_scale=0.75, max_scale=1.25, max_shift=0.1, crop_center_x=0.5, crop_center_y=0.5, rot_range=45.0, target_background_vals=None):
     # ensure input is a color image
     if len(img.shape) < 3 or img.shape[2] < 3:
         img = skimage.color.gray2rgb(img)
     # strip alpha layer, if present
     img = img[:,:,0:3]
+
+    if targets is not None and target_background_vals is None:
+        target_background_vals = [np.zeros(target.shape[2]) for target in targets]
+
     # convert to floating point
     img = img.astype(np.float)
     if targets is not None:
         num_targets = len(targets)
         for t in range(num_targets):
             targets[t] = targets[t].astype(np.float)
+            # transform targets to range(-1,1)
+            targets[t] = targets[t]/255 * 2 - 1.0
+
+    # randomly resize and crop image
+    if face_box is None:
+        face_box = Rect(0,0,img.shape[1],img.shape[0])
+    if jitter:
+        scale = min_scale + np.random.random_sample()*(max_scale-min_scale)
+        center_x = crop_center_x + (2*np.random.random_sample()-1)*max_shift
+        center_y = crop_center_y + (2*np.random.random_sample()-1)*max_shift
+    else:
+        scale = (min_scale + max_scale)/2.0
+        center_x = crop_center_x
+        center_y = crop_center_y
+    face_box = shift_and_scale_rect(face_box, center_x, center_y, scale, make_square=True)
+
+    img_rect, crop_rect = sanitize_crop(face_box, img.shape)
+    crop_width = face_box.right - face_box.left
+    crop_height = face_box.bottom - face_box.top
+    # create crops
+    crop = np.zeros((crop_height, crop_width, img.shape[2]), img.dtype)
+    crop[crop_rect.top:crop_rect.bottom, crop_rect.left:crop_rect.right] \
+            = img[img_rect.top:img_rect.bottom, img_rect.left:img_rect.right]
+    img = crop
+    if targets is not None:
+        target_crops = []
+        for t in range(num_targets):
+            crop = np.zeros((crop_height, crop_width, img.shape[2]), img.dtype)
+            crop += target_background_vals[t]
+            crop[crop_rect.top:crop_rect.bottom, crop_rect.left:crop_rect.right] \
+                    = targets[t][img_rect.top:img_rect.bottom, img_rect.left:img_rect.right]
+            targets[t] = crop
 
     # randomly rotate image
-    if jitter:
+    if jitter and rot_range > 0:
         rot_angle = np.random.uniform(-rot_range, rot_range)
         img = skimage.transform.rotate(img, rot_angle, mode='edge')
         if targets is not None:
             for t in range(num_targets):
                 targets[t] = skimage.transform.rotate(targets[t], rot_angle, mode='edge')
 
-    # randomly resize and crop image
-    mindim = np.min(img.shape[0:2])
-    if jitter:
-        # crop will be size 256x256
-        # randomly resize such that crop has size ratio in desired range
-        mindim_min = int(256/max_crop_ratio)
-        mindim_max = int(256/min_crop_ratio)
-        new_mindim = np.random.randint(mindim_min, mindim_max)
-    else:
-        new_mindim = 256
-    scale = np.float(new_mindim)/mindim
-    new_shape = np.ceil(scale*np.array(img.shape[0:2])).astype(np.int)
-
-    img = skimage.transform.resize(img, new_shape, mode='constant')
+    # resize to final shape for processing
+    final_shape = (256,256)
+    img = skimage.transform.resize(img, final_shape, mode='edge')
     if targets is not None:
         for t in range(num_targets):
-            targets[t] = skimage.transform.resize(targets[t], new_shape, mode='constant')
-
-    # crop square
-    if jitter:
-        center_x = img.shape[1] * crop_center_x
-        center_y = img.shape[0] * crop_center_y
-        max_x = int(center_x + max_crop_shift_ratio*img.shape[1] - 128)
-        max_x = min(max_x, img.shape[1] - 256)
-        min_x = int(center_x - max_crop_shift_ratio*img.shape[1] - 128)
-        min_x = max(min_x, 0)
-        max_y = int(center_y + max_crop_shift_ratio*img.shape[0] - 128)
-        max_y = min(max_y, img.shape[0] - 256)
-        min_y = int(center_y - max_crop_shift_ratio*img.shape[0] - 128)
-        min_y = max(min_y, 0)
-
-        if max_x > min_x:
-            xoff = np.random.randint(min_x,max_x)
-        else:
-            xoff = 0
-        if max_y > min_y:
-            yoff = np.random.randint(min_y,max_y)
-        else:
-            yoff = 0
-    else:
-        xoff = (img.shape[1] - 256)/2
-        yoff = (img.shape[0] - 256)/2
-    img = img[yoff:yoff+256,xoff:xoff+256,:]
-    if targets is not None:
-        for t in range(num_targets):
-            targets[t] = targets[t][yoff:yoff+256, xoff:xoff+256,:]
+            targets[t] = skimage.transform.resize(targets[t], final_shape, mode='edge')
 
     # jitter color values
     if jitter:
@@ -115,10 +156,7 @@ def prepare_input(img, targets=None, jitter=False, min_crop_ratio=0.75, max_crop
 
     # transform pixels to range (-0.5, 0.5)
     img = img/255 - 0.5
-    # transform targets to range(-1,1)
     if targets is not None:
-        for t in range(num_targets):
-            targets[t] = targets[t]/255 * 2 - 1.0
         return img, targets
     else:
         return img
@@ -189,7 +227,7 @@ def unnormalize_offsets(offsets_in, use_3DMM_bbox=True):
     offsets = offsets_in * scale + offset
     return offsets
 
-def normalize_PNCC(pncc_in, use_3DMM_bbox=True, to_byte=False):
+def normalize_PNCC(pncc_in, use_3DMM_bbox=True):
     """ convert pncc image with 3-d coordinates to values in range (-1,1)
         Note that the bounding box values below must match those in face3d/semantic_map.cxx
     """
@@ -255,18 +293,21 @@ def save_ply(img, pncc, offsets, filename):
 
 
 class Pix2FaceTrainingData(Dataset):
-    def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None, jitter=True):
+    def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None, face_box_dir=None, jitter=True, use_3DMM_bbox=True):
         self.jitter = jitter
-        self.min_crop_ratio = 0.8
-        self.max_crop_ratio = 1.0
-        self.max_crop_shift_ratio = 0.05
+        self.min_scale = 1.0
+        self.max_scale = 1.8
+        self.max_shift = 0.25
         self.crop_center_x = 0.5
         self.crop_center_y = 0.5
         self.rot_range = 20.0
+        self.target_background_vals = [normalize_PNCC((0.0,0.0,0.0), use_3DMM_bbox), normalize_offsets((0.0, 0.0, 0.0), use_3DMM_bbox)]
         print('input_dir = ' + input_dir)
         print('target_PNCC_dir = ' + target_PNCC_dir)
         if target_offsets_dir is not None:
             print('target_offsets_dir = ' + target_offsets_dir)
+        if face_box_dir is not None:
+            print('face_box_dir = ' + face_box_dir)
 
         self.input_filenames = sorted([os.path.join(input_dir, fname) for fname in os.listdir(input_dir)])
         self.target_PNCC_filenames = sorted([os.path.join(target_PNCC_dir, fname) for fname in os.listdir(target_PNCC_dir)])
@@ -274,10 +315,17 @@ class Pix2FaceTrainingData(Dataset):
             self.target_offsets_filenames = None
         else:
             self.target_offsets_filenames = sorted([os.path.join(target_offsets_dir, fname) for fname in os.listdir(target_offsets_dir)])
+        if face_box_dir is None:
+            self.face_box_filenames = None
+        else:
+            self.face_box_filenames = sorted([os.path.join(face_box_dir, fname) for fname in os.listdir(face_box_dir)])
+
         if len(self.input_filenames) != len(self.target_PNCC_filenames):
             raise Exception('Different numbers of input and target PNCC images')
         if self.target_offsets_filenames is not None and len(self.input_filenames) != len(self.target_offsets_filenames):
             raise Exception('Different numbers of input and target offsets images')
+        if self.face_box_filenames is not None and len(self.input_filenames) != len(self.face_box_filenames):
+            raise Exception('Different numbers of input and face box files')
         print(str(len(self.input_filenames)) + ' total training images in dataset.')
 
 
@@ -307,16 +355,24 @@ class Pix2FaceTrainingData(Dataset):
                 raise Exception('Inconsistent input and target offsets image sizes')
             targets.append(target_offsets)
 
-            # transform offsets to expected size
-            target_offsets = skimage.transform.resize(target_offsets, (256,256), mode='constant')
+        # get face bounding box
+        if self.face_box_filenames is None:
+            face_box = Rect(left=0,top=0,right=img.shape[1],bottom=img.shape[0])
+        else:
+            with open(self.face_box_filenames[idx],'r') as fd:
+                vals = [int(val) for val in fd.readline().split()]
+            face_box = Rect(left=vals[0], top=vals[1], right=vals[2], bottom=vals[3])
 
-        img, targets = prepare_input(img, targets, jitter=self.jitter,
-                                     min_crop_ratio=self.min_crop_ratio,
-                                     max_crop_ratio=self.max_crop_ratio,
-                                     max_crop_shift_ratio=self.max_crop_shift_ratio,
+        # preprocess imagery
+        img, targets = prepare_input(img, targets, face_box=face_box,
+                                     jitter=self.jitter,
+                                     min_scale=self.min_scale,
+                                     max_scale=self.max_scale,
+                                     max_shift=self.max_shift,
                                      crop_center_x=self.crop_center_x,
                                      crop_center_y=self.crop_center_y,
-                                     rot_range=self.rot_range)
+                                     rot_range=self.rot_range,
+                                     target_background_vals=self.target_background_vals)
         img = torch.Tensor(np.moveaxis(img, 2, 0))  # make num_channels first dimension
 
         # concatenate target images together

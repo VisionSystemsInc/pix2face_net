@@ -1,6 +1,5 @@
 from __future__ import print_function
 import os
-import signal
 import argparse
 import numpy as np
 import torch
@@ -11,15 +10,9 @@ from torch.autograd import Variable
 import network
 import data
 
-def start_pdb(sig, frame):
-    """ drop into the PDB debugger when signal is received.
-    """
-    import pdb
-    pdb.Pdb().set_trace(frame)
 
-
-def train(input_dir, PNCC_dir, offsets_dir,
-          val_input_dir, val_PNCC_dir, val_offsets_dir,
+def train(input_dir, PNCC_dir, offsets_dir, face_box_dir,
+          val_input_dir, val_PNCC_dir, val_offsets_dir, val_face_box_dir,
           output_dir,
           start_epoch=0):
     """ Train the Pix2Face Model
@@ -56,8 +49,8 @@ def train(input_dir, PNCC_dir, offsets_dir,
     optimizer = optim.Adam(model.parameters(), lr_max, betas=(0.5, 0.9))
     #optimizer = optim.SGD(model.parameters(), lr_max)
 
-    train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir)
-    val_set = data.Pix2FaceTrainingData(val_input_dir, val_PNCC_dir, val_offsets_dir)
+    train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir, face_box_dir)
+    val_set = data.Pix2FaceTrainingData(val_input_dir, val_PNCC_dir, val_offsets_dir, val_face_box_dir, jitter=False)
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=minibatch_size, shuffle=True, num_workers=8, pin_memory=True)
 
     #loss_fn = nn.SmoothL1Loss()
@@ -112,7 +105,7 @@ def train(input_dir, PNCC_dir, offsets_dir,
                 break
 
         # Epoch Complete: Perform Validation after each epoch
-        #model.eval()
+        model.eval()
         val_loader = torch.utils.data.DataLoader(val_set, batch_size=16, num_workers=8)
         val_mb_losses = np.zeros(len(val_loader)) + np.nan
         for v_batch_idx, (v_input, v_target) in enumerate(val_loader):
@@ -138,14 +131,16 @@ if __name__ == '__main__':
     parser.add_argument('--input_dir', required=True, help='directory containing input images')
     parser.add_argument('--PNCC_dir', required=True, help='directory containing target PNCC images')
     parser.add_argument('--offsets_dir', default=None, help='directory containing target offset images')
+    parser.add_argument('--face_box_dir', default=None, help='directory containing image face bounding boxes, one file per image of form <left top right bottom>')
     parser.add_argument('--val_input_dir', required=True, help='directory containing validation input images')
     parser.add_argument('--val_PNCC_dir', required=True, help='directory containing validation target PNCC images')
     parser.add_argument('--val_offsets_dir', default=None, help='directory containing validation target offset images')
+    parser.add_argument('--val_face_box_dir', default=None, help='directory containing image face bounding boxes, one file per image of form <left top right bottom>')
     parser.add_argument('--output_dir', required=True, help='directory to write model and logs to')
     parser.add_argument('--start_epoch', required=False, type=int, default=0)
     args = parser.parse_args()
-    signal.signal(signal.SIGUSR1, start_pdb)
     print('pid = ' + str(os.getpid()))
-    train(args.input_dir, args.PNCC_dir, args.offsets_dir,
-          args.val_input_dir, args.val_PNCC_dir, args.val_offsets_dir, args.output_dir,
+    train(args.input_dir, args.PNCC_dir, args.offsets_dir, args.face_box_dir,
+          args.val_input_dir, args.val_PNCC_dir, args.val_offsets_dir, args.val_face_box_dir,
+          args.output_dir,
           args.start_epoch)
