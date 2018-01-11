@@ -21,7 +21,7 @@ def load_model(model_filename):
     return model
 
 
-def test(model, inputs, cuda_device=None, use_3DMM_bbox=True):
+def test(model, inputs, face_boxes=None, cuda_device=None, use_3DMM_bbox=True):
     """ run the network on inputs, return list of numpy arrays """
     model.eval()
     minibatch_size = 8
@@ -33,6 +33,8 @@ def test(model, inputs, cuda_device=None, use_3DMM_bbox=True):
         if type(inputs) == np.ndarray:
             single_input = True
             inputs = [inputs,]
+            if face_boxes is not None:
+                face_boxes = [face_boxes,]
         else:
             raise Exception('Unexpected input type ' + str(type(inputs)))
 
@@ -46,7 +48,11 @@ def test(model, inputs, cuda_device=None, use_3DMM_bbox=True):
             # save original image shapes for later
             input_shapes.append(inputs[i].shape)
             # normalize / convert to float
-            minibatch_inputs.append( data.prepare_input(inputs[i]) )
+            if face_boxes is None:
+                face_box = None
+            else:
+                face_box = face_boxes[i]
+            minibatch_inputs.append( data.prepare_input(inputs[i], face_box=face_box) )
 
         # create minibatch
         mb = data.images_to_minibatch(minibatch_inputs)
