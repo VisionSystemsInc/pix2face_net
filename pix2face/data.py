@@ -14,6 +14,9 @@ from collections import namedtuple
 
 Rect = namedtuple('Rect',('left','top','right','bottom'))
 
+MIN_TRAIN_SCALE = 1.0
+MAX_TRAIN_SCALE = 1.8
+
 def shift_and_scale_rect(rect, center_x=0.5, center_y=0.5, scale=1.0, make_square=False):
     """
     Given a Rect, shift, scale, and optionally make square
@@ -74,7 +77,7 @@ def minibatch_to_images(mb):
     return images
 
 
-def prepare_input(img, targets=None, face_box=None, jitter=False, min_scale=0.75, max_scale=1.25, max_shift=0.1, crop_center_x=0.5, crop_center_y=0.5, rot_range=45.0, target_background_vals=None):
+def prepare_input(img, targets=None, face_box=None, jitter=False, min_scale=MIN_TRAIN_SCALE, max_scale=MAX_TRAIN_SCALE, max_shift=0.1, crop_center_x=0.5, crop_center_y=0.5, rot_range=45.0, target_background_vals=None):
     # ensure input is a color image
     if len(img.shape) < 3 or img.shape[2] < 3:
         img = skimage.color.gray2rgb(img)
@@ -94,14 +97,18 @@ def prepare_input(img, targets=None, face_box=None, jitter=False, min_scale=0.75
             targets[t] = targets[t]/255 * 2 - 1.0
 
     # randomly resize and crop image
-    if face_box is None:
-        face_box = Rect(0,0,img.shape[1],img.shape[0])
     if jitter:
         scale = min_scale + np.random.random_sample()*(max_scale-min_scale)
         center_x = crop_center_x + (2*np.random.random_sample()-1)*max_shift
         center_y = crop_center_y + (2*np.random.random_sample()-1)*max_shift
     else:
-        scale = (min_scale + max_scale)/2.0
+        if face_box is None:
+            # use full input image, don't scale
+            face_box = Rect(0,0,img.shape[1],img.shape[0])
+            scale = 1
+        else:
+            # use provided bounding box, use mean training scale
+            scale = (min_scale + max_scale)/2.0
         center_x = crop_center_x
         center_y = crop_center_y
     face_box = shift_and_scale_rect(face_box, center_x, center_y, scale, make_square=True)
@@ -295,8 +302,8 @@ def save_ply(img, pncc, offsets, filename):
 class Pix2FaceTrainingData(Dataset):
     def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None, face_box_dir=None, jitter=True, use_3DMM_bbox=True):
         self.jitter = jitter
-        self.min_scale = 1.0
-        self.max_scale = 1.8
+        self.min_scale = MIN_TRAIN_SCALE
+        self.max_scale = MAX_TRAIN_SCALE
         self.max_shift = 0.25
         self.crop_center_x = 0.5
         self.crop_center_y = 0.5
