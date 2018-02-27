@@ -11,14 +11,28 @@ import data
 import network
 
 
-def load_model(model_filename):
+def load_model(model_filename, cuda_device=None):
     """ load the pytorch model from disk """
     print('loading ' + str(model_filename) + ' ...')
     model = network.Pix2FaceNet()
-    model_state_dict = torch.load(model_filename)
+
+    if cuda_device is None:
+        map_loc = lambda storage, loc: storage
+    else:
+        map_loc = lambda storage, loc: storage.cuda(cuda_device)
+
+    model_state_dict = torch.load(model_filename, map_location=map_loc)
     model.load_state_dict(model_state_dict)
     print('...done.')
     return model
+
+
+def load_pretrained_model(cuda_device=None):
+    pix2face_dir = os.path.dirname(os.path.dirname(__file__))
+    model_fname = os.path.join(pix2face_dir,'data/models/pix2face_unet_v10.pt')
+    if not os.path.isfile(model_fname):
+        raise RuntimeError('File ' + model_fname + ' does not exist. Did you download the model?')
+    return load_model(model_fname, cuda_device=cuda_device)
 
 
 def test(model, inputs, face_boxes=None, cuda_device=None, use_3DMM_bbox=True):
