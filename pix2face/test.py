@@ -7,8 +7,8 @@ import skimage.external.tifffile as tifffile
 import torch
 from torch.autograd import Variable
 
-import data
-import network
+from . import data
+from . import network
 
 
 def load_model(model_filename, cuda_device=None):

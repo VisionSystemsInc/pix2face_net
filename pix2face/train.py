@@ -7,8 +7,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 
-import network
-import data
+from . import network
+from . import data
 
 
 def train(input_dir, PNCC_dir, offsets_dir, face_box_dir,
