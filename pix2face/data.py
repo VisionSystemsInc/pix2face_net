@@ -191,11 +191,11 @@ def prepare_output(img, input_shape, use_3DMM_bbox=True):
     imgs_out = [np.zeros((input_shape[0],input_shape[1],3), img.dtype) for img in imgs]
     # fill in center region with square crops
     if input_shape[0] > input_shape[1]:
-        s = (input_shape[0] - input_shape[1])/2
+        s = (input_shape[0] - input_shape[1])//2
         for i in range(len(imgs_out)):
             imgs_out[i][s:s+mindim,:,:] = imgs[i]
     else:
-        s = (input_shape[1] - input_shape[0])/2
+        s = (input_shape[1] - input_shape[0])//2
         for i in range(len(imgs_out)):
             imgs_out[i][:,s:s+mindim,:] = imgs[i]
 
