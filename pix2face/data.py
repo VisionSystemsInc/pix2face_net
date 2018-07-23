@@ -17,6 +17,7 @@ Rect = namedtuple('Rect',('left','top','right','bottom'))
 MIN_TRAIN_SCALE = 1.0
 MAX_TRAIN_SCALE = 1.8
 
+
 def shift_and_scale_rect(rect, center_x=0.5, center_y=0.5, scale=1.0, make_square=False):
     """
     Given a Rect, shift, scale, and optionally make square
@@ -24,7 +25,6 @@ def shift_and_scale_rect(rect, center_x=0.5, center_y=0.5, scale=1.0, make_squar
     No bounds checking is performed.
     Returns the new Rect.
     """
-    half_scale = scale/2.0
     height = rect.bottom - rect.top
     width = rect.right - rect.left
     new_center_x = rect.left + center_x*width
@@ -119,15 +119,14 @@ def prepare_input(img, targets=None, face_box=None, jitter=False, min_scale=MIN_
     # create crops
     crop = np.zeros((crop_height, crop_width, img.shape[2]), img.dtype)
     crop[crop_rect.top:crop_rect.bottom, crop_rect.left:crop_rect.right] \
-            = img[img_rect.top:img_rect.bottom, img_rect.left:img_rect.right]
+        = img[img_rect.top:img_rect.bottom, img_rect.left:img_rect.right]
     img = crop
     if targets is not None:
-        target_crops = []
         for t in range(num_targets):
             crop = np.zeros((crop_height, crop_width, img.shape[2]), img.dtype)
             crop += target_background_vals[t]
             crop[crop_rect.top:crop_rect.bottom, crop_rect.left:crop_rect.right] \
-                    = targets[t][img_rect.top:img_rect.bottom, img_rect.left:img_rect.right]
+                = targets[t][img_rect.top:img_rect.bottom, img_rect.left:img_rect.right]
             targets[t] = crop
 
     # randomly rotate image
@@ -140,10 +139,10 @@ def prepare_input(img, targets=None, face_box=None, jitter=False, min_scale=MIN_
 
     # resize to final shape for processing
     final_shape = (256,256)
-    img = skimage.transform.resize(img, final_shape, mode='edge')
+    img = skimage.transform.resize(img, final_shape, mode='edge', anti_aliasing=False)
     if targets is not None:
         for t in range(num_targets):
-            targets[t] = skimage.transform.resize(targets[t], final_shape, mode='edge')
+            targets[t] = skimage.transform.resize(targets[t], final_shape, mode='edge', anti_aliasing=False)
 
     # jitter color values
     if jitter:
@@ -185,10 +184,10 @@ def prepare_output(img, input_shape, use_3DMM_bbox=True):
 
     # convert to expected size (square aspect ratio)
     mindim = np.min(input_shape[0:2])
-    imgs = [skimage.transform.resize(img, (mindim,mindim), mode='constant').astype(np.float32) for img in imgs]
+    imgs = [skimage.transform.resize(im, (mindim,mindim), mode='constant', anti_aliasing=True).astype(np.float32) for im in imgs]
 
     # create outputs of correct size
-    imgs_out = [np.zeros((input_shape[0],input_shape[1],3), img.dtype) for img in imgs]
+    imgs_out = [np.zeros((input_shape[0],input_shape[1],3), im.dtype) for im in imgs]
     # fill in center region with square crops
     if input_shape[0] > input_shape[1]:
         s = (input_shape[0] - input_shape[1])//2
@@ -198,7 +197,6 @@ def prepare_output(img, input_shape, use_3DMM_bbox=True):
         s = (input_shape[1] - input_shape[0])//2
         for i in range(len(imgs_out)):
             imgs_out[i][:,s:s+mindim,:] = imgs[i]
-
 
     return imgs_out
 
@@ -233,6 +231,7 @@ def unnormalize_offsets(offsets_in, use_3DMM_bbox=True):
     offset = (max_val + min_val)/2.0
     offsets = offsets_in * scale + offset
     return offsets
+
 
 def normalize_PNCC(pncc_in, use_3DMM_bbox=True):
     """ convert pncc image with 3-d coordinates to values in range (-1,1)
@@ -335,15 +334,12 @@ class Pix2FaceTrainingData(Dataset):
             raise Exception('Different numbers of input and face box files')
         print(str(len(self.input_filenames)) + ' total training images in dataset.')
 
-
     def __len__(self):
         return len(self.input_filenames)
-
 
     def __getitem__(self, idx):
         # load images
         img = skimage.io.imread(self.input_filenames[idx])
-        target_ext = os.path.splitext(self.target_PNCC_filenames[idx])[1]
 
         target_PNCC = skimage.io.imread(self.target_PNCC_filenames[idx])
 
