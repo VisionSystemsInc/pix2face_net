@@ -16,8 +16,6 @@ class Unet(nn.Module):
         self.conv7 = nn.Conv2d(num_filters * 8, num_filters * 8, 4, 2, 1)
         self.conv8 = nn.Conv2d(num_filters * 8, num_filters * 8, 4, 2, 1)
 
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-
         self.dconv1 = nn.Conv2d(num_filters*8, num_filters*8, 3, 1, 1)
         self.dconv2 = nn.Conv2d(num_filters*8*2, num_filters*8, 3, 1, 1)
         self.dconv3 = nn.Conv2d(num_filters*8*2, num_filters*8, 3, 1, 1)
@@ -27,23 +25,26 @@ class Unet(nn.Module):
         self.dconv7 = nn.Conv2d(num_filters * 2 * 2, num_filters, 3, 1, 1)
         self.dconv8 = nn.Conv2d(num_filters * 2, channels_out, 3, 1, 1)
 
-        self.norm2_dn = nn.InstanceNorm2d(num_filters * 2, track_running_stats=True)
-        self.norm4_dn = nn.InstanceNorm2d(num_filters * 4, track_running_stats=True)
-        self.norm8_dn1 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=True)
-        self.norm8_dn2 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=True)
-        self.norm8_dn3 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=True)
-        self.norm8_dn4 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=True)
-        self.norm8_up1 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=True)
-        self.norm8_up2 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=True)
-        self.norm8_up3 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=True)
-        self.norm8_up4 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=True)
-        self.norm4_up = nn.InstanceNorm2d(num_filters * 4, track_running_stats=True)
-        self.norm2_up = nn.InstanceNorm2d(num_filters * 2, track_running_stats=True)
-        self.norm1_up = nn.InstanceNorm2d(num_filters, track_running_stats=True)
+        self.norm2_dn = nn.InstanceNorm2d(num_filters * 2, track_running_stats=False)
+        self.norm4_dn = nn.InstanceNorm2d(num_filters * 4, track_running_stats=False)
+        self.norm8_dn1 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=False)
+        self.norm8_dn2 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=False)
+        self.norm8_dn3 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=False)
+        self.norm8_dn4 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=False)
+        self.norm8_up1 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=False)
+        self.norm8_up2 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=False)
+        self.norm8_up3 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=False)
+        self.norm8_up4 = nn.InstanceNorm2d(num_filters * 8, track_running_stats=False)
+        self.norm4_up = nn.InstanceNorm2d(num_filters * 4, track_running_stats=False)
+        self.norm2_up = nn.InstanceNorm2d(num_filters * 2, track_running_stats=False)
+        self.norm1_up = nn.InstanceNorm2d(num_filters, track_running_stats=False)
 
         self.leaky_relu = nn.LeakyReLU(0.2, True)
         self.relu = nn.ReLU(True)
         self.tanh = nn.Tanh()
+
+    def up(self, input):
+        return nn.functional.interpolate(input, scale_factor=2, mode='bilinear', align_corners=True)
 
     def forward(self, input):
         # Encoder
