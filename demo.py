@@ -7,13 +7,12 @@ from PIL import Image
 import os.path
 
 #----- parameters -----
-model_fname = './data/models/pix2face_unet_cuda75.pt'
 img_fname = './data/CASIA_0000107_004.jpg'
 output_dir = '.'
 #----------------------
 
 # Load the network weights
-model = pix2face.test.load_model(model_fname)
+model = pix2face.test.load_pretrained_model()
 
 # load the test image
 img = np.array(Image.open(img_fname))
