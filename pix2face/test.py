@@ -27,12 +27,15 @@ def load_model(model_filename, cuda_device=None):
     return model
 
 
-def load_pretrained_model(cuda_device=None):
-    pix2face_dir = os.path.dirname(os.path.dirname(__file__))
+def load_pretrained_model(cuda_device=None, model_dir=None):
+    if model_dir is None:
+        pix2face_dir = os.path.dirname(os.path.dirname(__file__))
+        model_dir = os.path.join(pix2face_dir, 'data/models')
+
     if torch.__version__[0:3] == '0.3':
-        model_fname = os.path.join(pix2face_dir,'data/models/pix2face_unet_v10.pt')
+        model_fname = os.path.join(model_dir,'pix2face_unet_v10.pt')
     else:
-        model_fname = os.path.join(pix2face_dir,'data/models/pix2face_unet_v10_pytorch0.4_cpu.pt')
+        model_fname = os.path.join(model_dir,'pix2face_unet_v10_pytorch0.4_cpu.pt')
     if not os.path.isfile(model_fname):
         raise RuntimeError('File ' + model_fname + ' does not exist. Did you download the model?')
     return load_model(model_fname, cuda_device=cuda_device)
