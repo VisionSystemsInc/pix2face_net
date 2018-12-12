@@ -1,4 +1,7 @@
-# pix2face
+# pix2face_net
+
+__Note__: For a complete 3D face geometry estimation and rendering solution with documentation, see [pix2face](https://github.com/VisionSystemsInc/pix2face), which contains this repository as a submodule.
+
 ### Direct Estimation of 3D Face Pose and Geometry from 2D Images
 ![](pix2face_teaser.jpg "pix2face_teaser")
 
@@ -35,6 +38,21 @@ python test.py --model $OUTPUT_DIR/pix2face_unet.pth \
 See demo.py for an example of a transformation from image --> PNCC + offsets --> 3D Point Cloud.
 
 In order to run the demo, you will need to train the network or download a pre-trained model.
+
+## Citation
+If you find this software useful, please consider referencing:
+
+```bibtex
+@INPROCEEDINGS{pix2face2017,
+author = {Daniel Crispell and Maxim Bazik},
+booktitle = {2017 IEEE International Conference on Computer Vision Workshop (ICCVW)},
+title = {Pix2Face: Direct 3D Face Model Estimation},
+year = {2017},
+pages = {2512-2518},
+ISSN = {2473-9944},
+month={Oct.}
+}
+```
 
 ## Contact
 Daniel Crispell [dan@visionsystemsinc.com](mailto:dan@visionsystemsinc.com)
