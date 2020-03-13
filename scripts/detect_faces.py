@@ -2,7 +2,7 @@ import os
 import sys
 import numpy as np
 from PIL import Image
-import dlibnet
+import dlib
 
 
 def main(image_dir, output_dir, detector_model_fname):
@@ -11,7 +11,7 @@ def main(image_dir, output_dir, detector_model_fname):
     containing the image coordinates of the bounding box in the following form:
     left top right bottom
     """
-    detector = dlibnet.mm_object_detector(detector_model_fname)
+    detector = dlib.cnn_face_detection_model_v1(detector_model_fname)
     for fname in os.listdir(image_dir):
         image_path = os.path.join(image_dir, fname)
         basename, _ = os.path.splitext(fname)
@@ -19,12 +19,12 @@ def main(image_dir, output_dir, detector_model_fname):
         img = np.array(Image.open(image_path))
         dets = detector.detect(img)
         if len(dets) == 0:
-            rect = dlibnet.rectangle(0,0,img.shape[1],img.shape[0])
+            rect = dlib.rectangle(0,0,img.shape[1],img.shape[0])
         else:
-            dets.sort(key=lambda x : -x.detection_confidence)
+            dets = sorted(dets, key=lambda x : -x.confidence)
             rect = dets[0].rect
         with open(output_path,'w') as fd:
-            fd.write('%d %d %d %d\n' % (rect.left, rect.top, rect.right, rect.bottom))
+            fd.write('%d %d %d %d\n' % (rect.left(), rect.top(), rect.right(), rect.bottom()))
 
 
 if __name__ == '__main__':
