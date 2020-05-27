@@ -3,15 +3,15 @@ import os
 import numpy as np
 
 import skimage.io
-import skimage.external.tifffile as tifffile
+import tifffile
 import skimage.transform
 import skimage.morphology
 
 import torch
 from torch.utils.data import Dataset
 
-from collections import namedtuple
-
+from collections import namedtuple, OrderedDict
+from tqdm import tqdm
 Rect = namedtuple('Rect',('left','top','right','bottom'))
 
 MIN_TRAIN_SCALE = 1.0
@@ -111,6 +111,7 @@ def prepare_input(img, targets=None, face_box=None, jitter=False, min_scale=MIN_
             scale = (min_scale + max_scale)/2.0
         center_x = crop_center_x
         center_y = crop_center_y
+
     face_box = shift_and_scale_rect(face_box, center_x, center_y, scale, make_square=True)
 
     img_rect, crop_rect = sanitize_crop(face_box, img.shape)
@@ -168,7 +169,7 @@ def prepare_input(img, targets=None, face_box=None, jitter=False, min_scale=MIN_
         return img
 
 
-def prepare_output(img, input_shape, use_3DMM_bbox=True):
+def prepare_output(img, input_shape, use_3DMM_bbox=True, use_flame_bbox=False):
     # separate if two images concatenated
     if img.shape[2] == 6:
         imgs = [img[:,:,0:3].astype(np.float32), img[:,:,3:6].astype(np.float32)]
@@ -178,9 +179,9 @@ def prepare_output(img, input_shape, use_3DMM_bbox=True):
         raise Exception('Unexpected image shape: ' + str(img.shape))
 
     # unnormalize pncc and offset values
-    imgs[0] = unnormalize_PNCC(imgs[0], use_3DMM_bbox)
+    imgs[0] = unnormalize_PNCC(imgs[0], use_3DMM_bbox, use_flame_bbox)
     if len(imgs) > 0:
-        imgs[1] = unnormalize_offsets(imgs[1], use_3DMM_bbox)
+        imgs[1] = unnormalize_offsets(imgs[1], use_3DMM_bbox, use_flame_bbox)
 
     # convert to expected size (square aspect ratio)
     mindim = np.min(input_shape[0:2])
@@ -201,13 +202,16 @@ def prepare_output(img, input_shape, use_3DMM_bbox=True):
     return imgs_out
 
 
-def unnormalize_PNCC(pncc_in, use_3DMM_bbox=True):
+def unnormalize_PNCC(pncc_in, use_3DMM_bbox=True, use_flame_bbox=False):
     """ convert PNCC image with values in range (-1,1) to actual 3-d coordinates.
         Note that the bounding box values below must match those in face3d/semantic_map.cxx
     """
     if use_3DMM_bbox:
         min_val = np.array((-100.0, -130.0, -25.0))
         max_val = np.array((100.0, 100.0, 150.0))
+    elif use_flame_bbox:
+        min_val = np.array((-0.100, -0.155, -0.100))
+        max_val = np.array((0.100, 0.130, 0.120))
     else:
         min_val = np.array((-100.0, -130.0, -120.0))
         max_val = np.array((100.0, 130.0, 120.0))
@@ -217,13 +221,16 @@ def unnormalize_PNCC(pncc_in, use_3DMM_bbox=True):
     return pncc
 
 
-def unnormalize_offsets(offsets_in, use_3DMM_bbox=True):
+def unnormalize_offsets(offsets_in, use_3DMM_bbox=True, use_flame_bbox=False):
     """ convert offset image with values in range (-1,1) to actual 3-d coordinates.
         Note that the bounding box values below must match those in face3d/semantic_map.cxx
     """
     if use_3DMM_bbox:
         min_val = np.array((-25.0, -25.0, -25.0))
         max_val = np.array((25.0, 25.0, 25.0))
+    elif use_flame_bbox:
+        min_val = np.array((-0.020, -0.02, -0.02))
+        max_val = np.array((0.02,  0.02,  0.02))
     else:
         min_val = np.array((-20.0, -20.0, -20.0))
         max_val = np.array((20.0, 20.0, 20.0))
@@ -233,13 +240,16 @@ def unnormalize_offsets(offsets_in, use_3DMM_bbox=True):
     return offsets
 
 
-def normalize_PNCC(pncc_in, use_3DMM_bbox=True):
+def normalize_PNCC(pncc_in, use_3DMM_bbox=True, use_flame_bbox=False):
     """ convert pncc image with 3-d coordinates to values in range (-1,1)
         Note that the bounding box values below must match those in face3d/semantic_map.cxx
     """
     if use_3DMM_bbox:
         min_val = np.array((-100.0, -130.0, -25.0))
         max_val = np.array((100.0, 100.0, 150.0))
+    elif use_flame_bbox:
+        min_val = np.array((-0.100, -0.155, -0.100))
+        max_val = np.array((0.100, 0.130, 0.120))
     else:
         min_val = np.array((-100.0, -130.0, -120.0))
         max_val = np.array((100.0, 130.0, 120.0))
@@ -251,13 +261,16 @@ def normalize_PNCC(pncc_in, use_3DMM_bbox=True):
     return pncc
 
 
-def normalize_offsets(offsets_in, use_3DMM_bbox=True):
+def normalize_offsets(offsets_in, use_3DMM_bbox=True, use_flame_bbox=False):
     """ convert offset image with real 3-d values to range (-1,1)
         Note that the bounding box values below must match those in face3d/semantic_map.cxx
     """
     if use_3DMM_bbox:
         min_val = np.array((-25.0, -25.0, -25.0))
         max_val = np.array((25.0, 25.0, 25.0))
+    elif use_flame_bbox:
+        min_val = np.array((-0.020, -0.02, -0.02))
+        max_val = np.array((0.02,  0.02,  0.02))
     else:
         min_val = np.array((-20.0, -20.0, -20.0))
         max_val = np.array((20.0, 20.0, 20.0))
@@ -299,7 +312,8 @@ def save_ply(img, pncc, offsets, filename):
 
 
 class Pix2FaceTrainingData(Dataset):
-    def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None, face_box_dir=None, jitter=True, use_3DMM_bbox=True):
+    def __init__(self, input_dir, target_PNCC_dir, target_offsets_dir=None, face_box_dir=None, jitter=True, use_3DMM_bbox=True, use_flame_bbox=False,
+                 use_mapping=False, pncc_suffix='_pncc', offsets_suffix='_offsets', pncc_ext='.png', box_suffix='_bbox', offsets_ext='.png', box_ext='.txt'):
         self.jitter = jitter
         self.min_scale = MIN_TRAIN_SCALE
         self.max_scale = MAX_TRAIN_SCALE
@@ -307,7 +321,8 @@ class Pix2FaceTrainingData(Dataset):
         self.crop_center_x = 0.5
         self.crop_center_y = 0.5
         self.rot_range = 20.0
-        self.target_background_vals = [normalize_PNCC((0.0,0.0,0.0), use_3DMM_bbox), normalize_offsets((0.0, 0.0, 0.0), use_3DMM_bbox)]
+        self.use_mapping = use_mapping
+        self.target_background_vals = [normalize_PNCC((0.0,0.0,0.0), use_3DMM_bbox, use_flame_bbox), normalize_offsets((0.0, 0.0, 0.0), use_3DMM_bbox, use_flame_bbox)]
         print('input_dir = ' + input_dir)
         print('target_PNCC_dir = ' + target_PNCC_dir)
         if target_offsets_dir is not None:
@@ -315,24 +330,48 @@ class Pix2FaceTrainingData(Dataset):
         if face_box_dir is not None:
             print('face_box_dir = ' + face_box_dir)
 
-        self.input_filenames = sorted([os.path.join(input_dir, fname) for fname in os.listdir(input_dir)])
-        self.target_PNCC_filenames = sorted([os.path.join(target_PNCC_dir, fname) for fname in os.listdir(target_PNCC_dir)])
-        if target_offsets_dir is None:
-            self.target_offsets_filenames = None
-        else:
-            self.target_offsets_filenames = sorted([os.path.join(target_offsets_dir, fname) for fname in os.listdir(target_offsets_dir)])
-        if face_box_dir is None:
-            self.face_box_filenames = None
-        else:
-            self.face_box_filenames = sorted([os.path.join(face_box_dir, fname) for fname in os.listdir(face_box_dir)])
 
-        if len(self.input_filenames) != len(self.target_PNCC_filenames):
-            raise Exception('Different numbers of input and target PNCC images')
-        if self.target_offsets_filenames is not None and len(self.input_filenames) != len(self.target_offsets_filenames):
-            raise Exception('Different numbers of input and target offsets images')
-        if self.face_box_filenames is not None and len(self.input_filenames) != len(self.face_box_filenames):
-            raise Exception('Different numbers of input and face box files')
-        print(str(len(self.input_filenames)) + ' total training images in dataset.')
+        self.input_filenames = sorted([os.path.join(input_dir, fname) for fname in os.listdir(input_dir)])
+
+        if not self.use_mapping:
+            self.target_PNCC_filenames = sorted([os.path.join(target_PNCC_dir, fname) for fname in os.listdir(target_PNCC_dir)])
+            if target_offsets_dir is None:
+                self.target_offsets_filenames = None
+            else:
+                self.target_offsets_filenames = sorted([os.path.join(target_offsets_dir, fname) for fname in os.listdir(target_offsets_dir)])
+            if face_box_dir is None:
+                self.face_box_filenames = None
+            else:
+                self.face_box_filenames = sorted([os.path.join(face_box_dir, fname) for fname in os.listdir(face_box_dir)])
+
+            if len(self.input_filenames) != len(self.target_PNCC_filenames):
+                raise Exception('Different numbers of input and target PNCC images')
+            if self.target_offsets_filenames is not None and len(self.input_filenames) != len(self.target_offsets_filenames):
+                raise Exception('Different numbers of input and target offsets images')
+            if self.face_box_filenames is not None and len(self.input_filenames) != len(self.face_box_filenames):
+                raise Exception('Different numbers of input and face box files')
+            print(str(len(self.input_filenames)) + ' total training images in dataset.')
+
+        else:
+            print("Building index for dataset")
+            self.filemap = OrderedDict({})
+            for path in tqdm(self.input_filenames):
+                fileid = os.path.splitext(os.path.basename(path))[0]
+                pncc_path = os.path.join(target_PNCC_dir, '%s%s%s' % (fileid, pncc_suffix, pncc_ext))
+                offsets_path = os.path.join(target_offsets_dir, '%s%s%s' % (fileid, offsets_suffix, offsets_ext))
+                box_path = os.path.join(target_offsets_dir, '%s%s%s' % (fileid, box_suffix, box_ext))
+                self.filemap[fileid] = {'pncc_p': '', 'offsets_p': '', 'box_p': ''}
+                if os.path.isfile(pncc_path):
+                    self.filemap[fileid]['pncc_p'] = pncc_path
+                if target_offsets_dir is not None and os.path.isfile(offsets_path):
+                    self.filemap[fileid]['offsets_p'] = offsets_path
+                if face_box_dir is not None and os.path.isfile(box_path):
+                    self.filemap[fileid]['box_p'] = box_path
+            self.target_PNCC_filenames = [self.filemap[fmap]['pncc_p'] for fmap in self.filemap]
+            self.target_offsets_filenames = [self.filemap[fmap]['offsets_p'] for fmap in self.filemap] if target_offsets_dir is not None else None
+            self.face_box_filenames = [self.filemap[fmap]['box_p'] for fmap in self.filemap] if face_box_dir is not None else None
+
+
 
     def __len__(self):
         return len(self.input_filenames)
@@ -340,18 +379,30 @@ class Pix2FaceTrainingData(Dataset):
     def __getitem__(self, idx):
         # load images
         img = skimage.io.imread(self.input_filenames[idx])
+        if not self.use_mapping:
+            pncc_path = self.target_PNCC_filenames[idx]
+        else:
+            fileid = os.path.splitext(os.path.basename(self.input_filenames[idx]))[0]
+            if fileid not in self.filemap:
+                raise Exception('Could not find a file entry for  file %s and %s at hash %d' % (self.input_filenames[idx], fileid))
+            pncc_path = self.filemap[fileid]['pncc_p']
+            offsets_path = self.filemap[fileid]['offsets_p']
+            face_box_path = self.filemap[fileid]['box_p']
 
-        target_PNCC = skimage.io.imread(self.target_PNCC_filenames[idx])
+        target_PNCC = skimage.io.imread(pncc_path)
 
         if img.shape[0:2] != target_PNCC.shape[0:2]:
             print('img.shape = ' + str(img.shape))
             print('target_PNCC.shape = ' + str(target_PNCC.shape))
-            raise Exception('Inconsistent input and target PNCC image sizes')
+            raise Exception('Inconsistent input and target PNCC image sizes for files %s and %s at index %d' %(self.input_filenames[idx], self.target_PNCC_filenames[idx], idx))
 
         targets = [target_PNCC,]
 
         if self.target_offsets_filenames is not None:
-            target_offsets = skimage.io.imread(self.target_offsets_filenames[idx])
+            if not self.use_mapping:
+                offsets_path = self.target_offsets_filenames[idx]
+
+            target_offsets = skimage.io.imread(offsets_path)
             if img.shape[0:2] != target_offsets.shape[0:2]:
                 print('img.shape = ' + str(img.shape))
                 print('target_offsets.shape = ' + str(target_offsets.shape))
@@ -362,7 +413,10 @@ class Pix2FaceTrainingData(Dataset):
         if self.face_box_filenames is None:
             face_box = Rect(left=0,top=0,right=img.shape[1],bottom=img.shape[0])
         else:
-            with open(self.face_box_filenames[idx],'r') as fd:
+            if not self.use_mapping:
+                face_box_path = self.face_box_filenames[idx]
+
+            with open(face_box_path,'r') as fd:
                 vals = [int(val) for val in fd.readline().split()]
             face_box = Rect(left=vals[0], top=vals[1], right=vals[2], bottom=vals[3])
 

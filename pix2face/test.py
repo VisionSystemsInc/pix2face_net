@@ -3,12 +3,12 @@ import os
 import argparse
 import numpy as np
 import skimage.io
-import skimage.external.tifffile as tifffile
+import tifffile
 import torch
 from torch.autograd import Variable
 
-from . import data
-from . import network
+import data
+import network
 
 
 def load_model(model_filename, cuda_device=None):
@@ -41,7 +41,7 @@ def load_pretrained_model(cuda_device=None, model_dir=None):
     return load_model(model_fname, cuda_device=cuda_device)
 
 
-def test(model, inputs, face_boxes=None, cuda_device=None, use_3DMM_bbox=True):
+def test(model, inputs, face_boxes=None, cuda_device=None, use_3DMM_bbox=True, use_flame_bbox=False):
     """ run the network on inputs, return list of numpy arrays """
     model.eval()
     minibatch_size = 8
@@ -94,7 +94,7 @@ def test(model, inputs, face_boxes=None, cuda_device=None, use_3DMM_bbox=True):
         # extract output images from tensor
         for mb_i in range(len(minibatch_inputs)):
             i = i_begin + mb_i
-            imgs_out = data.prepare_output(minibatch_outputs[mb_i], input_shapes[mb_i], use_3DMM_bbox)
+            imgs_out = data.prepare_output(minibatch_outputs[mb_i], input_shapes[mb_i], use_3DMM_bbox=use_3DMM_bbox, use_flame_bbox=use_flame_bbox)
             outputs.append(imgs_out)
 
     if single_input:
@@ -102,7 +102,8 @@ def test(model, inputs, face_boxes=None, cuda_device=None, use_3DMM_bbox=True):
     return outputs
 
 
-def test_files(model_filename, input, output_dir, cuda_device=None, output_format='tiff', use_3DMM_bbox=True):
+def test_files(model_filename, input, output_dir, cuda_device=None, use_3DMM_bbox=True, use_flame_bbox=False,
+               pncc_suffix='_pncc', offsets_suffix="_offsets", pncc_ext=".png", offsets_ext=".png"):
     """ run the network stored in model_filename on image(s) listed in input, write results to disk """
     chunk_size = 32  # maximum number of images to load at once
     model = load_model(model_filename)
@@ -113,8 +114,8 @@ def test_files(model_filename, input, output_dir, cuda_device=None, output_forma
         input_filenames = [os.path.join(input, f) for f in os.listdir(input)]
     else:
         input_filenames = [input,]
-    output_PNCC_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_PNCC.' + output_format) for f in input_filenames]
-    output_offsets_filenames = [os.path.join(output_dir, os.path.splitext(os.path.basename(f))[0] + '_offsets.' + output_format) for f in input_filenames]
+    output_PNCC_filenames = [os.path.join(output_dir, '%s%s%s' % (os.path.splitext(os.path.basename(f))[0], pncc_suffix, pncc_ext)) for f in input_filenames]
+    output_offsets_filenames = [os.path.join(output_dir, '%s%s%s' % (os.path.splitext(os.path.basename(f))[0], offsets_suffix, offsets_ext)) for f in input_filenames]
 
     num_inputs = len(input_filenames)
     for i_begin in range(0, num_inputs, chunk_size):
@@ -124,7 +125,7 @@ def test_files(model_filename, input, output_dir, cuda_device=None, output_forma
             # load image
             input = skimage.io.imread(input_filenames[i])
             chunk_inputs.append( input )
-        chunk_outputs = test(model, chunk_inputs, cuda_device, use_3DMM_bbox)
+        chunk_outputs = test(model, chunk_inputs, cuda_device=cuda_device, use_3DMM_bbox=use_3DMM_bbox, use_flame_bbox=use_flame_bbox)
         if len(chunk_outputs) != len(chunk_inputs):
             print('len(inputs) = ' + str(len(chunk_inputs)))
             print('len(outputs) = ' + str(len(chunk_outputs)))
@@ -132,16 +133,19 @@ def test_files(model_filename, input, output_dir, cuda_device=None, output_forma
         # write out output images
         for chunk_i in range(len(chunk_inputs)):
             i = i_begin + chunk_i
-            if output_format == 'tiff':
+            if pncc_ext == '.tiff':
                 tifffile.imsave(output_PNCC_filenames[i], chunk_outputs[chunk_i][0])
+            else:
+                pncc_out = data.normalize_PNCC(chunk_outputs[chunk_i][0], use_3DMM_bbox=use_3DMM_bbox, use_flame_bbox=use_flame_bbox)
+                pncc_out = ((pncc_out + 1)/2.0 * 255).astype(np.uint8)
+                skimage.io.imsave(output_PNCC_filenames[i], pncc_out)
+            if offsets_ext == '.tiff':
                 tifffile.imsave(output_offsets_filenames[i], chunk_outputs[chunk_i][1])
             else:
-                pncc_out = data.normalize_PNCC(chunk_outputs[chunk_i][0], use_3DMM_bbox)
-                pncc_out = (pncc_out/2.0 * 255).astype(np.uint8)
-                skimage.io.imsave(output_PNCC_filenames[i], pncc_out)
-                offsets_out = data.normalize_offsets(chunk_outputs[chunk_i][1], use_3DMM_bbox)
-                offsets_out = (offsets_out/2.0 * 255).astype(np.uint8)
+                offsets_out = data.normalize_offsets(chunk_outputs[chunk_i][1], use_3DMM_bbox=use_3DMM_bbox, use_flame_bbox=use_flame_bbox)
+                offsets_out = ((offsets_out+1)/2.0 * 255).astype(np.uint8)
                 skimage.io.imsave(output_offsets_filenames[i], offsets_out)
+
     return zip(output_PNCC_filenames, output_offsets_filenames)
 
 
@@ -150,7 +154,15 @@ if __name__ == '__main__':
     parser.add_argument('--model', required=True, help='filename of trained model')
     parser.add_argument('--input', required=True, help='filename or directory of input image(s)')
     parser.add_argument('--output_dir', required=True, help='directory to write output to')
+    parser.add_argument('--mm_bbox', required=False, action='store_true', default=False)
+    parser.add_argument('--flame_bbox', required=False, action='store_true', default=False)
+    parser.add_argument('--cuda_device', required=False, default="cuda", help="cuda device", choices=['cuda', 'cpu'])
+    parser.add_argument('--pncc_suffix', required=False, default="_pncc", help="suffix to append to the inputfilenames to generate the pncc filenames")
+    parser.add_argument('--offsets_suffix', required=False, default="_offsets", help="suffix to append to the inputfilenames to generate the pncc filenames")
+    parser.add_argument('--pncc_ext',required=False, default=".png", help="file extension for pncc images")
+    parser.add_argument('--offsets_ext',required=False, default=".png", help="file extension for offsets images")
+
     args = parser.parse_args()
-    output_filenames = test_files(args.model, args.input, args.output_dir)
+    output_filenames = test_files(args.model, args.input, args.output_dir, args.cuda_device, args.mm_bbox, args.flame_bbox, args.pncc_suffix, args.offsets_suffix, args.pncc_ext, args.offsets_ext)
     for fname in output_filenames:
         print(fname)

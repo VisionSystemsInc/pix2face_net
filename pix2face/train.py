@@ -6,23 +6,22 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
-
-from . import network
-from . import data
-
+from tqdm import tqdm
+import network
+import data
+import time
+from tensorboardX import SummaryWriter
 
 def train(input_dir, PNCC_dir, offsets_dir, face_box_dir,
           val_input_dir, val_PNCC_dir, val_offsets_dir, val_face_box_dir,
           output_dir,
-          start_epoch=0):
+          start_epoch=0, num_epochs=60, use_3DMM_bbox=True, use_flame_bbox=False,
+          input_file_mapping=False, pncc_suffix='_pncc', offsets_suffix="_offsets", pncc_ext=".png", offsets_ext=".png"):
     """ Train the Pix2Face Model
     """
     # intervals are in units of epochs
-    minibatch_size = 4
-    print_interval = 400 / minibatch_size
-    save_interval = 8000 / minibatch_size
-    validate_interval = 80000 / minibatch_size
-    num_epochs = 60
+    minibatch_size = 24
+
     cuda = True
 
     log_filename = os.path.join(output_dir, 'train_loss.npy')
@@ -49,20 +48,33 @@ def train(input_dir, PNCC_dir, offsets_dir, face_box_dir,
     optimizer = optim.Adam(model.parameters(), lr_max, betas=(0.5, 0.9))
     #optimizer = optim.SGD(model.parameters(), lr_max)
 
-    train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir, face_box_dir)
-    val_set = data.Pix2FaceTrainingData(val_input_dir, val_PNCC_dir, val_offsets_dir, val_face_box_dir, jitter=False)
+    train_set = data.Pix2FaceTrainingData(input_dir, PNCC_dir, offsets_dir, face_box_dir, use_3DMM_bbox=use_3DMM_bbox, use_flame_bbox=use_flame_bbox,
+                                          use_mapping=input_file_mapping, pncc_suffix=pncc_suffix, offsets_suffix=offsets_suffix,
+                                          pncc_ext=pncc_ext, offsets_ext=offsets_ext)
+    val_set = data.Pix2FaceTrainingData(val_input_dir, val_PNCC_dir, val_offsets_dir, val_face_box_dir, jitter=False, use_3DMM_bbox=use_3DMM_bbox, use_flame_bbox=use_flame_bbox,
+                                        use_mapping=input_file_mapping, pncc_suffix=pncc_suffix, offsets_suffix=offsets_suffix,
+                                        pncc_ext=pncc_ext, offsets_ext=offsets_ext)
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=minibatch_size, shuffle=True, num_workers=8, pin_memory=True)
+    writer = SummaryWriter(output_dir) # writer for buffering intermedium results
 
     #loss_fn = nn.SmoothL1Loss()
     loss_fn = nn.L1Loss()
     if cuda:
         loss_fn = loss_fn.cuda()
 
-    images_per_epoch = 100000
-    num_minibatches_per_epoch = np.min((images_per_epoch/minibatch_size, len(train_loader)))
-    num_minibatches = num_epochs*num_minibatches_per_epoch
+    num_batches = len(train_loader)
+    num_images = len(train_set)
+
+    num_minibatches_per_epoch = num_batches
+    num_minibatches = num_epochs * num_batches
+
+    validate_interval = int(len(train_loader)// 2) #
+    print_interval = 400 / minibatch_size
+    save_interval = 8000 / minibatch_size
+
+
     mb_loss = np.zeros(num_minibatches) + np.nan
-    val_loss = np.zeros(num_epochs+1) + np.nan
+    val_loss = np.zeros(num_minibatches) + np.nan
     mb_loss_epoch = np.linspace(0,num_epochs, len(mb_loss))
     np.save(os.path.join(output_dir, 'train_loss_epoch_num.npy'), mb_loss_epoch)
 
@@ -74,7 +86,12 @@ def train(input_dir, PNCC_dir, offsets_dir, face_box_dir,
         val_loss[:len(prev_val_loss)] = prev_val_loss
 
     np.save(val_loss_filename, val_loss)
+    bar_fmt = '{postfix[0]} {postfix[1][value]} {bar}{percentage:3.0f}% '
 
+
+    speed = 0
+    curr_val_loss = 0
+    start_t = time.time()
     for epoch in range(start_epoch, num_epochs):
         model.train()
         lr_decay_scale = 5.0 / num_epochs
@@ -82,6 +99,9 @@ def train(input_dir, PNCC_dir, offsets_dir, face_box_dir,
         print('Setting learning rate to ' + str(lr))
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
+            writer.add_scalar("Learning_Rate", lr, num_minibatches_per_epoch*epoch)
+        im_index = 0
+        prog = tqdm(total=num_images, postfix=["[pix2face::train]:", dict(value=0)], bar_format=bar_fmt)
         for batch_idx, (input, target) in enumerate(train_loader):
             if cuda:
                 input, target = input.cuda(), target.cuda()
@@ -91,37 +111,56 @@ def train(input_dir, PNCC_dir, offsets_dir, face_box_dir,
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            mb_loss[num_minibatches_per_epoch*epoch + batch_idx] = loss.data[0]
+            curr_batch_size = len(input)
+            mb_loss[num_minibatches_per_epoch*epoch + batch_idx] = loss.item()
             if batch_idx % print_interval == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch, batch_idx * minibatch_size, minibatch_size*num_minibatches_per_epoch,
-                    100. * batch_idx / num_minibatches_per_epoch, loss.data[0]))
+                end_t = time.time()
+                speed = (print_interval * train_loader.batch_size) / (end_t - start_t)
+                start_t = time.time()
+                # print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                #     epoch, batch_idx * minibatch_size, minibatch_size*num_minibatches_per_epoch,
+                #     100. * batch_idx / num_minibatches_per_epoch, loss.item()))
             if batch_idx % save_interval == 0:
                 np.save(log_filename, mb_loss)
                 torch.save(model.state_dict(), model_filename)
-                print('wrote ' + log_filename + ' and ' + model_filename)
-            if batch_idx == (num_minibatches_per_epoch-1):
-                print('stopping epoch.')
-                break
+                # print('wrote ' + log_filename + ' and ' + model_filename)
+            if batch_idx % validate_interval == 0 and batch_idx !=0:
+                model.eval()
+                val_loader = torch.utils.data.DataLoader(val_set, batch_size=16, num_workers=8)
+                val_mb_losses = np.zeros(len(val_loader)) + np.nan
+                for v_batch_idx, (v_input, v_target) in enumerate(val_loader):
+                    if cuda:
+                        v_input, v_target = v_input.cuda(), v_target.cuda()
+                    v_input, v_target = Variable(v_input), Variable(v_target)
+                    v_output = model(v_input)
+                    v_loss = loss_fn(v_output, v_target)
+                    val_mb_losses[v_batch_idx] = v_loss.item()
+                    curr_val_loss =  np.mean(val_mb_losses)
+                val_loss[num_minibatches_per_epoch*epoch + batch_idx] = curr_val_loss
+                writer.add_scalar("Validation_Loss", curr_val_loss, num_minibatches_per_epoch * epoch + batch_idx)
+                writer.add_scalar("Training_Loss", loss.item(), num_minibatches_per_epoch * epoch + batch_idx)
+
+                # print('Validation Loss = ' + str(val_loss[epoch+1]))
+                model.train()
+            im_index += curr_batch_size
+            prog.postfix[1]['value'] =\
+                'Epoch: {}/{}; img: {}/{}; TrLoss: {Tloss:.3f}; ValLoss: {Vloss:.3f}; Lr: {lr:.5f}; Speed: {sp:.3f} im/s'.format(
+                    epoch, num_epochs-1,
+                    im_index, num_images,
+                    Tloss=loss.item(), Vloss=curr_val_loss, lr=lr,
+                    sp=speed)
+
+            prog.update(curr_batch_size)
+
+            # if batch_idx == (num_minibatches_per_epoch-1):
+            #     print('stopping epoch.')
+            #     break
 
         # Epoch Complete: Perform Validation after each epoch
-        model.eval()
-        val_loader = torch.utils.data.DataLoader(val_set, batch_size=16, num_workers=8)
-        val_mb_losses = np.zeros(len(val_loader)) + np.nan
-        for v_batch_idx, (v_input, v_target) in enumerate(val_loader):
-            if v_batch_idx % print_interval == 0:
-                print('Validation: Minibatch {}/{}'.format(v_batch_idx, len(val_loader)))
-            if cuda:
-                v_input, v_target = v_input.cuda(), v_target.cuda()
-            v_input, v_target = Variable(v_input), Variable(v_target)
-            v_output = model(v_input)
-            v_loss = loss_fn(v_output, v_target)
-            val_mb_losses[v_batch_idx] = v_loss.data[0]
-        val_loss[epoch+1] = np.mean(val_mb_losses)
-        np.save(val_loss_filename, val_loss)
-        print('Validation Loss = ' + str(val_loss[epoch+1]))
+
 
         # save (at a minimum) after every completed epoch
+        prog.close()
         np.save(log_epoch_filename % epoch, mb_loss)
         torch.save(model.state_dict(), model_epoch_filename % epoch)
         print('Epoch complete.')
@@ -138,9 +177,18 @@ if __name__ == '__main__':
     parser.add_argument('--val_face_box_dir', default=None, help='directory containing image face bounding boxes, one file per image of form <left top right bottom>')
     parser.add_argument('--output_dir', required=True, help='directory to write model and logs to')
     parser.add_argument('--start_epoch', required=False, type=int, default=0)
+    parser.add_argument('--num_epochs', required=False, type=int, default=60)
+    parser.add_argument('--mm_bbox', required=False, action='store_true', default=False)
+    parser.add_argument('--flame_bbox', required=False, action='store_true', default=False)
+    parser.add_argument('--input_file_mapping', required=False, action='store_true', default=False, help="derive the pncc and offset filenames by appending the suffixes to the input filenames")
+    parser.add_argument('--pncc_suffix', required=False, default="_pncc", help="suffix to append to the inputfilenames to generate the pncc filenames")
+    parser.add_argument('--offsets_suffix', required=False, default="_offsets", help="suffix to append to the input filenames to generate the pncc filenames")
+    parser.add_argument('--pncc_ext',required=False, default=".png", help="file extension for pncc images")
+    parser.add_argument('--offsets_ext',required=False, default=".png", help="file extension for offsets images")
     args = parser.parse_args()
     print('pid = ' + str(os.getpid()))
     train(args.input_dir, args.PNCC_dir, args.offsets_dir, args.face_box_dir,
           args.val_input_dir, args.val_PNCC_dir, args.val_offsets_dir, args.val_face_box_dir,
           args.output_dir,
-          args.start_epoch)
+          args.start_epoch, args.num_epochs,
+          args.mm_bbox, args.flame_bbox, args.input_file_mapping, args.pncc_suffix, args.offsets_suffix, args.pncc_ext, args.offsets_ext)
