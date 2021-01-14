@@ -7,8 +7,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 from tqdm import tqdm
-import network
-import data
+import pix2face.network as network
+import pix2face.data as data
 import time
 from tensorboardX import SummaryWriter
 

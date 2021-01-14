@@ -7,8 +7,8 @@ import tifffile
 import torch
 from torch.autograd import Variable
 
-import data
-import network
+import pix2face.data as data
+import pix2face.network as network
 
 
 def load_model(model_filename, cuda_device=None):
